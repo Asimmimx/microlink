@@ -68,6 +68,12 @@ extern "C" {
 #define ML_TASK_WG_MGR_PRIO     7
 #define ML_TASK_WG_MGR_CORE     ML_TASK_APP_CORE
 
+/* Short polling delay that never rounds down to 0 ticks. pdMS_TO_TICKS()
+ * truncates, so at CONFIG_FREERTOS_HZ=100 (the ESP-IDF default) a 1-9 ms
+ * delay becomes vTaskDelay(0), which turns a polling loop into a busy spin
+ * that starves the idle task and trips the task watchdog. */
+#define ML_DELAY_TICKS(ms)      (pdMS_TO_TICKS(ms) > 0 ? pdMS_TO_TICKS(ms) : 1)
+
 /* Queue depths */
 #define ML_DERP_TX_QUEUE_DEPTH  16
 #define ML_DISCO_RX_QUEUE_DEPTH 8

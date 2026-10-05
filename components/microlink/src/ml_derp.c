@@ -401,7 +401,7 @@ static int poll_derp_read(microlink_t *ml) {
         n = mbedtls_ssl_read(&ml->derp.ssl, buf + total_read, len - total_read);
         if (n == MBEDTLS_ERR_SSL_WANT_READ || n == MBEDTLS_ERR_SSL_WANT_WRITE ||
             n == MBEDTLS_ERR_SSL_TIMEOUT) {
-            vTaskDelay(pdMS_TO_TICKS(5));
+            vTaskDelay(ML_DELAY_TICKS(5));
             continue;
         }
         if (n <= 0) {
@@ -627,7 +627,7 @@ void ml_derp_tx_task(void *arg) {
         }
 
         /* Yield briefly */
-        vTaskDelay(pdMS_TO_TICKS(1));
+        vTaskDelay(ML_DELAY_TICKS(1));
     }
 
     ESP_LOGI(TAG, "DERP I/O task exiting");
