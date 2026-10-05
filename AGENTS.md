@@ -149,6 +149,7 @@ Finally, tell the user to open <https://login.tailscale.com/admin/machines>, fin
 
 | Log shows | Cause | Fix |
 |---|---|---|
+| `DERP connect attempt N failed, retrying in ...` repeating | Outbound HTTPS (443) to Tailscale's relays is blocked or the internet is down | Check the network; it keeps retrying by itself (2 s up to 60 s) |
 | `WiFi disconnected, reason=201` repeating | WiFi name not found | Check the SSID, and that the network is 2.4 GHz |
 | `reason=15` or `reason=204` repeating | Wrong WiFi password | Fix the password, delete `sdkconfig`, rebuild |
 | `reason=2` / `205` once, then `WiFi connected` | Normal first-attempt retry | Nothing to do |
