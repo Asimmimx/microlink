@@ -767,7 +767,7 @@ static int do_register(microlink_t *ml, ml_noise_state_t *noise) {
     {
         cJSON *netinfo = cJSON_CreateObject();
         if (netinfo) {
-            cJSON_AddNumberToObject(netinfo, "PreferredDERP", ML_DERP_REGION);
+            cJSON_AddNumberToObject(netinfo, "PreferredDERP", ML_PREFERRED_DERP(ml));
             cJSON_AddItemToObject(hostinfo, "NetInfo", netinfo);
         }
     }
@@ -1028,7 +1028,12 @@ static int do_register(microlink_t *ml, ml_noise_state_t *noise) {
             }
         }
         /* Fallback: if server didn't assign a DERP region, use our configured default */
-        if (ml->derp_home_region == 0) {
+        /* The server's HomeDERP echoes the PreferredDERP we sent; once we've
+         * measured a closer region, that is our home until it catches up. */
+        if (ml->derp_preferred_region) {
+            ml->derp_home_region = ml->derp_preferred_region;
+            ESP_LOGI(TAG, "Home DERP region: %d (measured)", ml->derp_home_region);
+        } else if (ml->derp_home_region == 0) {
             ml->derp_home_region = ML_DERP_REGION;
             ESP_LOGI(TAG, "Home DERP region: %d (default)", ML_DERP_REGION);
         }
@@ -1488,7 +1493,7 @@ static int do_fetch_peers(microlink_t *ml, ml_noise_state_t *noise) {
      * to populate Node.HomeDERP for other peers. */
     cJSON *netinfo = cJSON_CreateObject();
     if (netinfo) {
-        cJSON_AddNumberToObject(netinfo, "PreferredDERP", ML_DERP_REGION);
+        cJSON_AddNumberToObject(netinfo, "PreferredDERP", ML_PREFERRED_DERP(ml));
         if (ml->stun_nat_checked) {
             cJSON_AddBoolToObject(netinfo, "MappingVariesByDestIP", ml->nat_mapping_varies);
         }
@@ -1854,7 +1859,9 @@ static int do_fetch_peers(microlink_t *ml, ml_noise_state_t *noise) {
                 }
             }
             /* Fallback: if server didn't assign a DERP region, use our configured default */
-            if (ml->derp_home_region == 0) {
+            if (ml->derp_preferred_region) {
+                ml->derp_home_region = ml->derp_preferred_region;   /* measured */
+            } else if (ml->derp_home_region == 0) {
                 ml->derp_home_region = ML_DERP_REGION;
                 ESP_LOGI(TAG, "Home DERP region: %d (default)", ML_DERP_REGION);
             }
@@ -1968,7 +1975,7 @@ static int do_start_long_poll(microlink_t *ml, ml_noise_state_t *noise) {
      * to populate Node.HomeDERP for other peers. */
     cJSON *netinfo = cJSON_CreateObject();
     if (netinfo) {
-        cJSON_AddNumberToObject(netinfo, "PreferredDERP", ML_DERP_REGION);
+        cJSON_AddNumberToObject(netinfo, "PreferredDERP", ML_PREFERRED_DERP(ml));
         if (ml->stun_nat_checked) {
             cJSON_AddBoolToObject(netinfo, "MappingVariesByDestIP", ml->nat_mapping_varies);
         }
@@ -2069,7 +2076,7 @@ static int do_send_endpoint_update(microlink_t *ml, ml_noise_state_t *noise) {
 
         cJSON *netinfo = cJSON_CreateObject();
         if (netinfo) {
-            cJSON_AddNumberToObject(netinfo, "PreferredDERP", ML_DERP_REGION);
+            cJSON_AddNumberToObject(netinfo, "PreferredDERP", ML_PREFERRED_DERP(ml));
             if (ml->stun_nat_checked) {
                 cJSON_AddBoolToObject(netinfo, "MappingVariesByDestIP", ml->nat_mapping_varies);
             }
@@ -2483,6 +2490,15 @@ void ml_coord_task(void *arg) {
                     ESP_LOGW(TAG, "Control plane watchdog timeout");
                     state = COORD_RECONNECTING;
                     break;
+                }
+
+                /* DERP picked a closer home region: report it now, so peers
+                 * look for us there instead of the old one */
+                if (xEventGroupGetBits(ml->events) & ML_EVT_DERP_REGION_CHANGED) {
+                    xEventGroupClearBits(ml->events, ML_EVT_DERP_REGION_CHANGED);
+                    ESP_LOGI(TAG, "Reporting PreferredDERP %d to control plane",
+                             ML_PREFERRED_DERP(ml));
+                    do_send_endpoint_update(ml, &noise);
                 }
 
                 /* Check for STUN response in queue (IPv4 or IPv6) */

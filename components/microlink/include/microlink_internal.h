@@ -209,6 +209,7 @@ typedef struct {
 #define ML_EVT_SHUTDOWN_REQUEST     BIT6
 #define ML_EVT_DERP_RECONNECT       BIT7
 #define ML_EVT_DERP_CONNECT_REQ     BIT8
+#define ML_EVT_DERP_REGION_CHANGED  BIT9    /* tell the control plane our new PreferredDERP */
 
 /* ============================================================================
  * Queue Message Types
@@ -375,6 +376,10 @@ struct microlink_s {
     /* Event group (cross-task synchronization) */
     EventGroupHandle_t events;
 
+    /* Lowest-latency DERP region we measured (0 = not measured yet). Reported
+     * as PreferredDERP and used as our home region; kept in NVS. */
+    volatile uint16_t derp_preferred_region;
+
     /* Serialises the two biggest transient heap users (MapResponse parse in
      * coord, DERP TLS handshake in derp_tx) so their peaks never stack. */
     SemaphoreHandle_t heavy_mem_lock;
@@ -488,6 +493,9 @@ struct microlink_s {
 #endif
 };
 
+/* PreferredDERP to report: measured region, else the compiled-in default */
+#define ML_PREFERRED_DERP(ml)     ((ml)->derp_preferred_region ? (ml)->derp_preferred_region : ML_DERP_REGION)
+
 /* Hold ml->heavy_mem_lock around a heap-hungry step. Waits at most 15 s, then
  * proceeds anyway so a stuck holder can never block connecting.
  * Returns whether the lock was taken; pass that to ml_heavy_mem_end(). */
@@ -536,6 +544,7 @@ void ml_net_io_task(void *arg);
 /* ml_derp.c */
 void ml_derp_tx_task(void *arg);
 esp_err_t ml_derp_connect(microlink_t *ml);
+void ml_save_preferred_derp(microlink_t *ml);   /* microlink.c */
 void ml_derp_disconnect(microlink_t *ml);
 esp_err_t ml_derp_queue_send(microlink_t *ml, const uint8_t *dest_key,
                               const uint8_t *data, size_t len);

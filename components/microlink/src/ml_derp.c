@@ -32,6 +32,9 @@
 #include <errno.h>
 #include <fcntl.h>
 
+static uint16_t derp_measure_regions(microlink_t *ml, uint16_t current,
+                                     int64_t *best_us_out, int64_t *current_us);
+
 static const char *TAG = "ml_derp";
 
 /* Timeout for DERP connection handshake operations */
@@ -500,6 +503,7 @@ void ml_derp_tx_task(void *arg) {
     uint64_t derp_next_try_ms = 0;
     uint32_t derp_backoff_ms = 2000;
     int derp_attempt = 0;
+    bool derp_regions_measured = false;  /* once per boot */
 
     while (!(xEventGroupGetBits(ml->events) & ML_EVT_SHUTDOWN_REQUEST)) {
         loop_count++;
@@ -549,6 +553,27 @@ void ml_derp_tx_task(void *arg) {
                 derp_next_try_ms = ml_get_time_ms() + 1000;
                 derp_backoff_ms = 2000;
                 derp_attempt = 0;
+            }
+            if (derp_wanted && !ml->derp.connected && !derp_regions_measured &&
+                ml->derp_region_count > 0 && !ml_at_socket_is_ready()) {
+                derp_regions_measured = true;
+                uint16_t current = ML_PREFERRED_DERP(ml);
+                int64_t closest_us, current_us;
+                uint16_t closest = derp_measure_regions(ml, current, &closest_us, &current_us);
+                /* Switch only for a clear win (>= 10 ms and >= 20% faster), so
+                 * regions with near-equal latency don't flip on every boot */
+                if (closest && closest != current && current_us >= 0 &&
+                    !(current_us - closest_us >= 10000 && closest_us * 5 <= current_us * 4)) {
+                    ESP_LOGI(TAG, "Keeping DERP region %u (%lld ms, about as fast)",
+                             current, current_us / 1000);
+                    closest = current;
+                }
+                if (closest && closest != ml->derp_preferred_region) {
+                    ml->derp_preferred_region = closest;
+                    ml->derp_home_region = closest;
+                    ml_save_preferred_derp(ml);
+                    xEventGroupSetBits(ml->events, ML_EVT_DERP_REGION_CHANGED);
+                }
             }
             if (derp_wanted && !ml->derp.connected && ml_get_time_ms() >= derp_next_try_ms) {
                 derp_attempt++;
@@ -641,6 +666,118 @@ void ml_derp_tx_task(void *arg) {
 /* ============================================================================
  * DERP Connection Management (called from coord task)
  * ========================================================================== */
+
+/* ============================================================================
+ * Home region selection
+ * ========================================================================== */
+
+#define DERP_PROBE_BATCH        6       /* sockets open at once (LWIP_MAX_SOCKETS) */
+#define DERP_PROBE_TIMEOUT_US   1500000
+
+/* Time a TCP connect to one DERP node per region and return the fastest
+ * region (0 if none answered). Tailscale clients pick their home region by
+ * latency; a fixed region (Dallas) costs every relayed packet an ocean
+ * crossing for most of the world. Runs before the first DERP connect.
+ * Also reports the fastest time and region `current`'s time (-1 if it
+ * didn't answer). */
+static uint16_t derp_measure_regions(microlink_t *ml, uint16_t current,
+                                     int64_t *best_us_out, int64_t *current_us) {
+    *current_us = -1;
+    struct { int fd; uint16_t region; const char *code; int64_t start_us; } probe[DERP_PROBE_BATCH];
+    uint16_t best = 0;
+    const char *best_code = "";
+    int64_t best_us = INT64_MAX;
+    int answered = 0;
+    int ri = 0;
+
+    while (ri < ml->derp_region_count) {
+        int np = 0;
+        for (; ri < ml->derp_region_count && np < DERP_PROBE_BATCH; ri++) {
+            const ml_derp_region_t *r = &ml->derp_regions[ri];
+            if (r->avoid) continue;
+            const ml_derp_node_t *node = NULL;
+            for (int k = 0; k < r->node_count; k++) {
+                if (!r->nodes[k].stun_only && r->nodes[k].ipv4[0]) {
+                    node = &r->nodes[k];
+                    break;
+                }
+            }
+            if (!node) continue;
+
+            struct sockaddr_in addr = {
+                .sin_family = AF_INET,
+                .sin_port = htons(node->derp_port ? node->derp_port : 443),
+            };
+            if (inet_aton(node->ipv4, &addr.sin_addr) == 0) continue;
+
+            int fd = socket(AF_INET, SOCK_STREAM, IPPROTO_TCP);
+            if (fd < 0) break;
+            fcntl(fd, F_SETFL, fcntl(fd, F_GETFL, 0) | O_NONBLOCK);
+            int64_t t0 = esp_timer_get_time();
+            if (connect(fd, (struct sockaddr *)&addr, sizeof(addr)) != 0 && errno != EINPROGRESS) {
+                close(fd);
+                continue;
+            }
+            probe[np].fd = fd;
+            probe[np].region = r->region_id;
+            probe[np].code = r->code;
+            probe[np].start_us = t0;
+            np++;
+        }
+
+        int64_t deadline = esp_timer_get_time() + DERP_PROBE_TIMEOUT_US;
+        int pending = np;
+        while (pending > 0) {
+            int64_t left = deadline - esp_timer_get_time();
+            if (left <= 0) break;
+            fd_set wfds;
+            FD_ZERO(&wfds);
+            int maxfd = -1;
+            for (int i = 0; i < np; i++) {
+                if (probe[i].fd >= 0) {
+                    FD_SET(probe[i].fd, &wfds);
+                    if (probe[i].fd > maxfd) maxfd = probe[i].fd;
+                }
+            }
+            struct timeval tv = { .tv_sec = left / 1000000, .tv_usec = left % 1000000 };
+            if (select(maxfd + 1, NULL, &wfds, NULL, &tv) <= 0) break;
+            int64_t now = esp_timer_get_time();
+            for (int i = 0; i < np; i++) {
+                if (probe[i].fd < 0 || !FD_ISSET(probe[i].fd, &wfds)) continue;
+                int err = 0;
+                socklen_t len = sizeof(err);
+                getsockopt(probe[i].fd, SOL_SOCKET, SO_ERROR, &err, &len);
+                if (err == 0) {
+                    int64_t rtt = now - probe[i].start_us;
+                    ESP_LOGD(TAG, "DERP region %u (%s): %lld ms", probe[i].region,
+                             probe[i].code, rtt / 1000);
+                    answered++;
+                    if (probe[i].region == current) *current_us = rtt;
+                    if (rtt < best_us) {
+                        best_us = rtt;
+                        best = probe[i].region;
+                        best_code = probe[i].code;
+                    }
+                }
+                close(probe[i].fd);
+                probe[i].fd = -1;
+                pending--;
+            }
+        }
+        for (int i = 0; i < np; i++) {
+            if (probe[i].fd >= 0) close(probe[i].fd);
+        }
+    }
+
+    *best_us_out = best_us;
+    if (best) {
+        ESP_LOGI(TAG, "Closest DERP region: %u (%s), %lld ms (%d regions answered)",
+                 best, best_code, best_us / 1000, answered);
+    } else {
+        ESP_LOGW(TAG, "No DERP region answered the latency probe");
+    }
+    return best;
+}
 
 /* Undo a DERP connect that failed after TLS setup began. Without this the
  * mbedTLS contexts leaked on every failed attempt (~10 KB each):

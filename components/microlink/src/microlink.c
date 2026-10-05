@@ -34,6 +34,7 @@ static const char *TAG = "microlink";
 #define NVS_KEY_WG_PUB      "wg_public"
 #define NVS_KEY_DISCO_PRI   "disco_pri"
 #define NVS_KEY_DISCO_PUB   "disco_pub"
+#define NVS_KEY_DERP_PREF   "derp_pref"
 
 /* X25519 from x25519.h */
 #include "x25519.h"
@@ -50,6 +51,14 @@ static void generate_keypair(uint8_t *private_key, uint8_t *public_key) {
     x25519_base(public_key, private_key, 1);
 }
 
+void ml_save_preferred_derp(microlink_t *ml) {
+    nvs_handle_t nvs;
+    if (nvs_open(NVS_NAMESPACE, NVS_READWRITE, &nvs) != ESP_OK) return;
+    nvs_set_u16(nvs, NVS_KEY_DERP_PREF, ml->derp_preferred_region);
+    nvs_commit(nvs);
+    nvs_close(nvs);
+}
+
 static esp_err_t load_or_generate_keys(microlink_t *ml) {
     nvs_handle_t nvs;
     esp_err_t err = nvs_open(NVS_NAMESPACE, NVS_READWRITE, &nvs);
@@ -63,6 +72,13 @@ static esp_err_t load_or_generate_keys(microlink_t *ml) {
 
     size_t key_len = 32;
     bool need_save = false;
+
+    /* Lowest-latency DERP region measured on a previous boot, if any */
+    uint16_t derp_pref = 0;
+    if (nvs_get_u16(nvs, NVS_KEY_DERP_PREF, &derp_pref) == ESP_OK && derp_pref > 0) {
+        ml->derp_preferred_region = derp_pref;
+        ESP_LOGI(TAG, "Preferred DERP region from last boot: %u", derp_pref);
+    }
 
     /* Machine key */
     if (nvs_get_blob(nvs, NVS_KEY_MACHINE_PRI, ml->machine_private_key, &key_len) != ESP_OK) {
