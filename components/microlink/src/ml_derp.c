@@ -735,12 +735,15 @@ esp_err_t ml_derp_connect(microlink_t *ml) {
     mbedtls_ssl_set_bio(&ml->derp.ssl, &ml->derp.sockfd,
                          ml_derp_bio_send, NULL, ml_derp_bio_recv_timeout);
 
-    /* TLS handshake - socket has 10s SO_RCVTIMEO from connect phase. */
+    /* TLS handshake - socket has 10s SO_RCVTIMEO from connect phase.
+     * Not at the same time as a MapResponse parse: both are large heap peaks. */
     int ret;
+    bool heavy = ml_heavy_mem_begin(ml);
     while ((ret = mbedtls_ssl_handshake(&ml->derp.ssl)) != 0) {
         if (ret == MBEDTLS_ERR_SSL_WANT_READ || ret == MBEDTLS_ERR_SSL_WANT_WRITE) {
             continue;
         }
+        ml_heavy_mem_end(ml, heavy);
         char err_buf[128];
         mbedtls_strerror(ret, err_buf, sizeof(err_buf));
         ESP_LOGE(TAG, "TLS handshake failed: %s", err_buf);
@@ -748,6 +751,8 @@ esp_err_t ml_derp_connect(microlink_t *ml) {
         ml->derp.sockfd = -1;
         return ESP_FAIL;
     }
+
+    ml_heavy_mem_end(ml, heavy);
 
     int64_t t_derp_tls = esp_timer_get_time();
     ESP_LOGI(TAG, "[TIMING] DERP TLS handshake: %lld ms", (t_derp_tls - t_derp_tcp) / 1000);

@@ -278,6 +278,10 @@ microlink_t *microlink_init(const microlink_config_t *config) {
         return NULL;
     }
 
+    /* Optional: if it can't be created, heavy steps just run unserialised */
+    ml->heavy_mem_lock = xSemaphoreCreateBinary();
+    if (ml->heavy_mem_lock) xSemaphoreGive(ml->heavy_mem_lock);
+
     /* Create queues */
     ml->derp_tx_queue = xQueueCreate(ML_DERP_TX_QUEUE_DEPTH, sizeof(ml_derp_tx_item_t));
     ml->disco_rx_queue = xQueueCreate(ML_DISCO_RX_QUEUE_DEPTH, sizeof(ml_rx_packet_t));
@@ -567,6 +571,7 @@ void microlink_destroy(microlink_t *ml) {
 
     /* Delete event group */
     if (ml->events) vEventGroupDelete(ml->events);
+    if (ml->heavy_mem_lock) vSemaphoreDelete(ml->heavy_mem_lock);
 
     /* Clear keys from memory */
     memset(ml->machine_private_key, 0, 32);

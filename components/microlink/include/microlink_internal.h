@@ -367,6 +367,10 @@ struct microlink_s {
     /* Event group (cross-task synchronization) */
     EventGroupHandle_t events;
 
+    /* Serialises the two biggest transient heap users (MapResponse parse in
+     * coord, DERP TLS handshake in derp_tx) so their peaks never stack. */
+    SemaphoreHandle_t heavy_mem_lock;
+
     /* Task handles */
     TaskHandle_t net_io_task;
     TaskHandle_t derp_tx_task;
@@ -475,6 +479,20 @@ struct microlink_s {
     ml_zerocopy_t zc;
 #endif
 };
+
+/* Hold ml->heavy_mem_lock around a heap-hungry step. Waits at most 15 s, then
+ * proceeds anyway so a stuck holder can never block connecting.
+ * Returns whether the lock was taken; pass that to ml_heavy_mem_end(). */
+#define ML_HEAVY_MEM_WAIT_MS    15000
+
+static inline bool ml_heavy_mem_begin(microlink_t *ml) {
+    return ml->heavy_mem_lock &&
+           xSemaphoreTake(ml->heavy_mem_lock, pdMS_TO_TICKS(ML_HEAVY_MEM_WAIT_MS)) == pdTRUE;
+}
+
+static inline void ml_heavy_mem_end(microlink_t *ml, bool taken) {
+    if (taken) xSemaphoreGive(ml->heavy_mem_lock);
+}
 
 /* lwIP's raw API (udp_*, netif_*) may only be used on tcpip_thread (or with
  * the core lock held). Run fn there and wait for it; if we already are on

@@ -31,6 +31,7 @@
 #include "lwip/sockets.h"
 #include "lwip/netdb.h"
 #include "mbedtls/base64.h"
+#include "ml_json_strip.h"
 #include <string.h>
 #include <errno.h>
 
@@ -162,6 +163,19 @@ static int noise_send(microlink_t *ml, ml_noise_state_t *noise,
     free(frame);
     return ret;
 }
+
+/* MapResponse members MicroLink never reads. They are removed from the raw
+ * JSON before cJSON_Parse(): the DOM costs ~3x the text, and Hostinfo/CapMap
+ * per peer plus PacketFilter/UserProfiles are most of a MapResponse. Removing
+ * them is what lets boards without PSRAM join. Never list a key that any code
+ * here reads (see the cJSON_GetObjectItem calls). */
+static const char *const s_unused_map_keys[] = {
+    "Hostinfo", "CapMap", "Capabilities", "PacketFilter", "PacketFilters",
+    "UserProfiles", "SSHPolicy", "DNSConfig", "ControlDialPlan", "ClientVersion",
+    "TKAInfo", "KeySignature", "ComputedName", "ComputedNameWithHost",
+    "PrimaryRoutes", "RegionName", "Latitude", "Longitude", "CertName",
+    NULL
+};
 
 /* Receive and decrypt a Noise transport frame, returns plaintext length.
  * If plaintext is NULL, a buffer of exactly the frame's plaintext size
@@ -1330,6 +1344,102 @@ static int add_endpoints_to_json(microlink_t *ml, cJSON *root) {
     return count;
 }
 
+/* Fill the next ml->derp_regions slot from one DERPMap region object */
+static void parse_derp_region(microlink_t *ml, cJSON *region_obj) {
+    if (ml->derp_region_count >= ML_MAX_DERP_REGIONS) return;
+    ml_derp_region_t *r = &ml->derp_regions[ml->derp_region_count];
+    memset(r, 0, sizeof(*r));
+
+    cJSON *rid = cJSON_GetObjectItem(region_obj, "RegionID");
+    if (rid) r->region_id = (uint16_t)rid->valuedouble;
+
+    cJSON *rcode = cJSON_GetObjectItem(region_obj, "RegionCode");
+    if (rcode && rcode->valuestring) {
+        strncpy(r->code, rcode->valuestring, sizeof(r->code) - 1);
+    }
+
+    cJSON *avoid = cJSON_GetObjectItem(region_obj, "Avoid");
+    if (avoid && cJSON_IsTrue(avoid)) r->avoid = true;
+
+    /* Parse nodes */
+    cJSON *nodes = cJSON_GetObjectItem(region_obj, "Nodes");
+    if (nodes) {
+        cJSON *node_obj;
+        cJSON_ArrayForEach(node_obj, nodes) {
+            if (r->node_count >= ML_MAX_DERP_NODES) break;
+            ml_derp_node_t *n = &r->nodes[r->node_count];
+            memset(n, 0, sizeof(*n));
+
+            cJSON *hn = cJSON_GetObjectItem(node_obj, "HostName");
+            if (hn && hn->valuestring) {
+                strncpy(n->hostname, hn->valuestring, sizeof(n->hostname) - 1);
+            }
+
+            cJSON *ip4 = cJSON_GetObjectItem(node_obj, "IPv4");
+            if (ip4 && ip4->valuestring) {
+                strncpy(n->ipv4, ip4->valuestring, sizeof(n->ipv4) - 1);
+            }
+
+            cJSON *ip6 = cJSON_GetObjectItem(node_obj, "IPv6");
+            if (ip6 && ip6->valuestring) {
+                strncpy(n->ipv6, ip6->valuestring, sizeof(n->ipv6) - 1);
+            }
+
+            cJSON *sp = cJSON_GetObjectItem(node_obj, "STUNPort");
+            if (sp) n->stun_port = (uint16_t)sp->valuedouble;
+
+            cJSON *dp = cJSON_GetObjectItem(node_obj, "DERPPort");
+            if (dp) n->derp_port = (uint16_t)dp->valuedouble;
+
+            cJSON *so = cJSON_GetObjectItem(node_obj, "STUNOnly");
+            if (so && cJSON_IsTrue(so)) n->stun_only = true;
+
+            r->node_count++;
+        }
+    }
+
+    ESP_LOGI(TAG, "  DERP region %d (%s): %d nodes%s",
+             r->region_id, r->code, r->node_count,
+             r->avoid ? " [avoid]" : "");
+    for (int ni = 0; ni < r->node_count; ni++) {
+        ESP_LOGI(TAG, "    node: %s (v4=%s v6=%s stun=%d derp=%d%s)",
+                 r->nodes[ni].hostname,
+                 r->nodes[ni].ipv4[0] ? r->nodes[ni].ipv4 : "-",
+                 r->nodes[ni].ipv6[0] ? r->nodes[ni].ipv6 : "-",
+                 r->nodes[ni].stun_port ? r->nodes[ni].stun_port : 3478,
+                 r->nodes[ni].derp_port ? r->nodes[ni].derp_port : 443,
+                 r->nodes[ni].stun_only ? " stun-only" : "");
+    }
+
+    ml->derp_region_count++;
+}
+
+/* Parse DERPMap straight from the MapResponse text, one region at a time.
+ * The DERPMap is most of a MapResponse (~75% for a small tailnet); building
+ * a DOM for one region at a time instead of the whole map keeps the peak
+ * heap small. Returns false if there is no DERPMap. */
+static bool parse_derp_map_text(microlink_t *ml, const char *json, size_t len) {
+    size_t ms, ml_len, rs, rl;
+    if (!ml_json_find_member(json, len, "DERPMap", &ms, &ml_len)) return false;
+    if (!ml_json_find_member(json + ms, ml_len, "Regions", &rs, &rl)) return false;
+    const char *regions = json + ms + rs;
+    if (rl == 0 || regions[0] != '{') return false;
+
+    ml->derp_region_count = 0;
+    size_t pos = 0, ks, kl, vs, vl;
+    while (ml_json_next_member(regions, rl, &pos, &ks, &kl, &vs, &vl)) {
+        cJSON *region_obj = cJSON_ParseWithLength(regions + vs, vl);
+        if (!region_obj) {
+            ESP_LOGW(TAG, "DERPMap: skipping unparseable region");
+            continue;
+        }
+        parse_derp_region(ml, region_obj);
+        cJSON_Delete(region_obj);
+    }
+    ESP_LOGI(TAG, "DERPMap: parsed %d regions", ml->derp_region_count);
+    return true;
+}
+
 static int do_fetch_peers(microlink_t *ml, ml_noise_state_t *noise) {
     int64_t t_map_start = esp_timer_get_time();
 
@@ -1420,16 +1530,23 @@ static int do_fetch_peers(microlink_t *ml, ml_noise_state_t *noise) {
      * This is critical because a single H2 frame can span multiple Noise frames
      * (v1 does the same with h2_buffer).
      * Smart timeout: extend to 60s for large tailnets (300+ peers = 240KB+). */
-    uint8_t *h2_recv = ml_psram_malloc(ML_H2_BUFFER_SIZE);  /* 512KB for 300+ peer tailnets */
-    if (!h2_recv) return -1;
+    /* The MapResponse is streamed: each decrypted Noise frame is walked with
+     * a small HTTP/2 frame state machine and DATA payload bytes go straight
+     * into resp_buf, so the raw HTTP/2 stream is never buffered. The body
+     * starts with a 4-byte little-endian length, so resp_buf is normally
+     * allocated once at its exact size; without it, it grows. Peak heap is
+     * then about the JSON size instead of the cap (ML_H2_BUFFER_SIZE, 512KB
+     * with PSRAM for 300+ peer tailnets), which lets small chips join. */
+    uint8_t *resp_buf = NULL;
+    size_t json_total = 0, json_cap = 0, json_expected = 0;
     size_t h2_total = 0;
+    bool out_of_room = false;
 
-    /* JSON (H2 DATA payloads) is compacted in place into h2_recv after the
-     * response is complete, so a second buffer isn't needed. This keeps peak
-     * usage to one ML_H2_BUFFER_SIZE allocation, which matters on boards
-     * without PSRAM (e.g. ESP32-C3). */
-    uint8_t *resp_buf = h2_recv;
-    size_t json_total = 0;
+    uint8_t f_hdr[9];
+    size_t f_hdr_have = 0;
+    uint32_t f_left = 0;
+    uint8_t f_type = 0, f_flags = 0;
+    bool in_payload = false;
 
     /* Set extended recv timeout for large MapResponse (60 seconds) */
     struct timeval rcv_tv = { .tv_sec = 60, .tv_usec = 0 };
@@ -1439,42 +1556,89 @@ static int do_fetch_peers(microlink_t *ml, ml_noise_state_t *noise) {
     uint64_t last_progress_ms = recv_start_ms;
     size_t window_consumed = 0;
 
-    /* Read all Noise frames and accumulate decrypted H2 data.
-     * Scan for H2 END_STREAM flag (0x01) on DATA frames to know when the
-     * response is complete — without this, we wait for the full recv timeout
-     * (60s) before proceeding, which dominates connection time on cellular. */
+    /* Read Noise frames until the H2 DATA frame with END_STREAM (0x01) ends
+     * the response — without that, we'd wait for the full recv timeout
+     * (60s), which dominates connection time on cellular. */
     bool got_end_stream = false;
-    for (int read_count = 0; read_count < 200; read_count++) {
-        /* Decrypt straight into h2_recv (no per-frame 64KB scratch buffer) */
-        size_t space = ML_H2_BUFFER_SIZE - h2_total;
-        int frame_len = noise_recv(ml, noise, h2_recv + h2_total, space);
+    for (int read_count = 0; read_count < 200 && !got_end_stream && !out_of_room; read_count++) {
+        uint8_t *frame = NULL;
+        int frame_len = noise_recv_alloc(ml, noise, &frame);
         if (frame_len <= 0) {
-            if (frame_len < 0 && space < 65536) {
-                ESP_LOGW(TAG, "H2 buffer full at %dKB, truncating", (int)(h2_total / 1024));
-            }
+            free(frame);
             break;
         }
         h2_total += frame_len;
         window_consumed += frame_len;
 
-        /* Scan newly accumulated data for H2 END_STREAM flag.
-         * H2 frame header: 3 bytes length + 1 byte type + 1 byte flags + 4 bytes stream ID.
-         * DATA frame type=0x00, END_STREAM flag=0x01.
-         * We scan from the start each time since frames may span Noise boundaries. */
-        size_t scan_pos = 0;
-        while (scan_pos + 9 <= h2_total) {
-            uint32_t f_len = (h2_recv[scan_pos] << 16) | (h2_recv[scan_pos + 1] << 8) | h2_recv[scan_pos + 2];
-            uint8_t f_type = h2_recv[scan_pos + 3];
-            uint8_t f_flags = h2_recv[scan_pos + 4];
-
-            if (scan_pos + 9 + f_len > h2_total) break;  /* Incomplete frame */
-
-            if (f_type == 0x00 && (f_flags & 0x01)) {
-                /* DATA frame with END_STREAM — response is complete */
-                got_end_stream = true;
+        size_t i = 0;
+        while (i < (size_t)frame_len && !out_of_room) {
+            if (!in_payload) {
+                /* H2 frame header: 3 bytes length, type, flags, 4 bytes stream ID */
+                size_t take = 9 - f_hdr_have;
+                if (take > (size_t)frame_len - i) take = (size_t)frame_len - i;
+                memcpy(f_hdr + f_hdr_have, frame + i, take);
+                f_hdr_have += take;
+                i += take;
+                if (f_hdr_have < 9) break;
+                f_hdr_have = 0;
+                f_left = ((uint32_t)f_hdr[0] << 16) | ((uint32_t)f_hdr[1] << 8) | f_hdr[2];
+                f_type = f_hdr[3];
+                f_flags = f_hdr[4];
+                ESP_LOGI(TAG, "  H2 frame: type=%d flags=0x%02x len=%lu stream=%lu",
+                         f_type, f_flags, (unsigned long)f_left,
+                         (unsigned long)((((uint32_t)f_hdr[5] & 0x7F) << 24) |
+                                         ((uint32_t)f_hdr[6] << 16) |
+                                         ((uint32_t)f_hdr[7] << 8) | f_hdr[8]));
+                in_payload = true;
             }
-            scan_pos += 9 + f_len;
+
+            size_t take = f_left;
+            if (take > (size_t)frame_len - i) take = (size_t)frame_len - i;
+
+            if (f_type == 0x00 && take > 0) {  /* DATA: append to the JSON body */
+                const uint8_t *src = frame + i;
+                if (json_total == 0 && take >= 4) {
+                    uint32_t announced = (uint32_t)src[0] | ((uint32_t)src[1] << 8) |
+                                         ((uint32_t)src[2] << 16) | ((uint32_t)src[3] << 24);
+                    if (announced > 0 && announced + 4 <= ML_H2_BUFFER_SIZE &&
+                        announced + 4 >= take) {
+                        json_expected = announced + 4;
+                    }
+                }
+                size_t need = json_total + take;
+                if (need > ML_H2_BUFFER_SIZE) {
+                    ESP_LOGW(TAG, "MapResponse larger than %dKB, truncating",
+                             (int)(ML_H2_BUFFER_SIZE / 1024));
+                    out_of_room = true;
+                    break;
+                }
+                if (need + 1 > json_cap) {
+                    size_t new_cap = json_expected >= need ? json_expected + 1
+                                                           : (need + 1 > json_cap * 2 ? need + 1 : json_cap * 2);
+                    if (new_cap > ML_H2_BUFFER_SIZE + 1) new_cap = ML_H2_BUFFER_SIZE + 1;
+                    uint8_t *grown = realloc(resp_buf, new_cap);
+                    if (!grown) {
+                        ESP_LOGW(TAG, "Out of memory for MapResponse (%dKB)", (int)(new_cap / 1024));
+                        out_of_room = true;
+                        break;
+                    }
+                    resp_buf = grown;
+                    json_cap = new_cap;
+                }
+                memcpy(resp_buf + json_total, src, take);
+                json_total += take;
+            }
+
+            i += take;
+            f_left -= take;
+            if (f_left == 0) {
+                in_payload = false;
+                if (f_type == 0x00 && (f_flags & 0x01)) {
+                    got_end_stream = true;
+                }
+            }
         }
+        free(frame);
 
         if (got_end_stream) {
             ESP_LOGI(TAG, "H2 END_STREAM detected after %d Noise frames (%dKB, %lums)",
@@ -1510,37 +1674,15 @@ static int do_fetch_peers(microlink_t *ml, ml_noise_state_t *noise) {
     rcv_tv.tv_sec = 5;
     ml_setsockopt(ml->coord_sock, SOL_SOCKET, SO_RCVTIMEO, &rcv_tv, sizeof(rcv_tv));
 
-    ESP_LOGI(TAG, "Accumulated %dKB of H2 data from Noise frames (%lums)",
-             (int)(h2_total / 1024),
+    ESP_LOGI(TAG, "Received %dKB of H2 data, %d bytes of JSON (%lums)",
+             (int)(h2_total / 1024), (int)json_total,
              (unsigned long)(ml_get_time_ms() - recv_start_ms));
 
-    /* Now parse complete H2 frames from accumulated buffer */
-    int fpos = 0;
-    while (fpos + 9 <= (int)h2_total) {
-        uint32_t f_len = (h2_recv[fpos] << 16) | (h2_recv[fpos + 1] << 8) | h2_recv[fpos + 2];
-        uint8_t f_type = h2_recv[fpos + 3];
-        uint8_t f_flags = h2_recv[fpos + 4];
-        uint32_t f_stream = ((h2_recv[fpos + 5] & 0x7F) << 24) |
-                            (h2_recv[fpos + 6] << 16) |
-                            (h2_recv[fpos + 7] << 8) | h2_recv[fpos + 8];
-        fpos += 9;
-
-        ESP_LOGI(TAG, "  H2 frame: type=%d flags=0x%02x len=%lu stream=%lu",
-                 f_type, f_flags, (unsigned long)f_len, (unsigned long)f_stream);
-
-        if (fpos + (int)f_len > (int)h2_total) {
-            ESP_LOGW(TAG, "  Incomplete H2 frame at end (need %lu, have %d)",
-                     (unsigned long)f_len, (int)h2_total - fpos);
-            break;
-        }
-
-        if (f_type == 0x00 && f_len > 0) {  /* DATA frame */
-            /* In-place compaction: json_total <= fpos, so memmove is safe */
-            memmove(resp_buf + json_total, h2_recv + fpos, f_len);
-            json_total += f_len;
-        }
-
-        fpos += f_len;
+    if (out_of_room) {
+        /* A partial body would only fail to parse (or parse into garbage) */
+        ESP_LOGW(TAG, "Incomplete MapResponse (%d bytes)", (int)json_total);
+        free(resp_buf);
+        return -1;
     }
 
     /* Send connection-level WINDOW_UPDATE to replenish HTTP/2 flow control.
@@ -1560,6 +1702,18 @@ static int do_fetch_peers(microlink_t *ml, ml_noise_state_t *noise) {
     }
 
     ESP_LOGI(TAG, "MapResponse JSON: %d bytes", (int)json_total);
+
+    /* Drop members we never read before cJSON builds its DOM */
+    for (int i = 0; i < 8 && i < (int)json_total; i++) {
+        if (resp_buf[i] == '{') {
+            size_t stripped = ml_json_strip_keys((char *)resp_buf + i, json_total - i,
+                                                 s_unused_map_keys);
+            ESP_LOGI(TAG, "MapResponse JSON: %d bytes after dropping unused fields",
+                     (int)(i + stripped));
+            json_total = i + stripped;
+            break;
+        }
+    }
 
     /* Give the unused tail of the receive buffer back to the heap before
      * cJSON builds its DOM (+1 for the null terminator below). */
@@ -1597,6 +1751,17 @@ static int do_fetch_peers(microlink_t *ml, ml_noise_state_t *noise) {
         parse_len -= json_offset;
     } else if (json_offset < 0) {
         ESP_LOGW(TAG, "No '{' found in first 8 bytes of MapResponse!");
+    }
+
+    /* Handle the DERPMap region by region from the text, then drop it so the
+     * DOM below only holds Node + Peers, then shrink the buffer again */
+    if (parse_derp_map_text(ml, parse_start, parse_len)) {
+        static const char *const derp_map_key[] = { "DERPMap", NULL };
+        size_t off = (size_t)(parse_start - (char *)resp_buf);
+        parse_len = ml_json_strip_keys(parse_start, parse_len, derp_map_key);
+        uint8_t *shrunk = realloc(resp_buf, off + parse_len + 1);
+        if (shrunk) resp_buf = shrunk;
+        parse_start = (char *)resp_buf + off;
     }
 
     /* Null-terminate */
@@ -1730,7 +1895,8 @@ static int do_fetch_peers(microlink_t *ml, ml_noise_state_t *noise) {
     /* Parse peers */
     parse_peers_from_map_response(ml, map_json);
 
-    /* Extract DERPMap if present — parse all regions and nodes */
+    /* Extract DERPMap if present (normally already handled from the text
+     * by parse_derp_map_text() before the DOM was built) */
     cJSON *derp_map = cJSON_GetObjectItem(map_json, "DERPMap");
     if (derp_map) {
         cJSON *regions = cJSON_GetObjectItem(derp_map, "Regions");
@@ -1738,72 +1904,7 @@ static int do_fetch_peers(microlink_t *ml, ml_noise_state_t *noise) {
             ml->derp_region_count = 0;
             cJSON *region_obj;
             cJSON_ArrayForEach(region_obj, regions) {
-                if (ml->derp_region_count >= ML_MAX_DERP_REGIONS) break;
-                ml_derp_region_t *r = &ml->derp_regions[ml->derp_region_count];
-                memset(r, 0, sizeof(*r));
-
-                cJSON *rid = cJSON_GetObjectItem(region_obj, "RegionID");
-                if (rid) r->region_id = (uint16_t)rid->valuedouble;
-
-                cJSON *rcode = cJSON_GetObjectItem(region_obj, "RegionCode");
-                if (rcode && rcode->valuestring) {
-                    strncpy(r->code, rcode->valuestring, sizeof(r->code) - 1);
-                }
-
-                cJSON *avoid = cJSON_GetObjectItem(region_obj, "Avoid");
-                if (avoid && cJSON_IsTrue(avoid)) r->avoid = true;
-
-                /* Parse nodes */
-                cJSON *nodes = cJSON_GetObjectItem(region_obj, "Nodes");
-                if (nodes) {
-                    cJSON *node_obj;
-                    cJSON_ArrayForEach(node_obj, nodes) {
-                        if (r->node_count >= ML_MAX_DERP_NODES) break;
-                        ml_derp_node_t *n = &r->nodes[r->node_count];
-                        memset(n, 0, sizeof(*n));
-
-                        cJSON *hn = cJSON_GetObjectItem(node_obj, "HostName");
-                        if (hn && hn->valuestring) {
-                            strncpy(n->hostname, hn->valuestring, sizeof(n->hostname) - 1);
-                        }
-
-                        cJSON *ip4 = cJSON_GetObjectItem(node_obj, "IPv4");
-                        if (ip4 && ip4->valuestring) {
-                            strncpy(n->ipv4, ip4->valuestring, sizeof(n->ipv4) - 1);
-                        }
-
-                        cJSON *ip6 = cJSON_GetObjectItem(node_obj, "IPv6");
-                        if (ip6 && ip6->valuestring) {
-                            strncpy(n->ipv6, ip6->valuestring, sizeof(n->ipv6) - 1);
-                        }
-
-                        cJSON *sp = cJSON_GetObjectItem(node_obj, "STUNPort");
-                        if (sp) n->stun_port = (uint16_t)sp->valuedouble;
-
-                        cJSON *dp = cJSON_GetObjectItem(node_obj, "DERPPort");
-                        if (dp) n->derp_port = (uint16_t)dp->valuedouble;
-
-                        cJSON *so = cJSON_GetObjectItem(node_obj, "STUNOnly");
-                        if (so && cJSON_IsTrue(so)) n->stun_only = true;
-
-                        r->node_count++;
-                    }
-                }
-
-                ESP_LOGI(TAG, "  DERP region %d (%s): %d nodes%s",
-                         r->region_id, r->code, r->node_count,
-                         r->avoid ? " [avoid]" : "");
-                for (int ni = 0; ni < r->node_count; ni++) {
-                    ESP_LOGI(TAG, "    node: %s (v4=%s v6=%s stun=%d derp=%d%s)",
-                             r->nodes[ni].hostname,
-                             r->nodes[ni].ipv4[0] ? r->nodes[ni].ipv4 : "-",
-                             r->nodes[ni].ipv6[0] ? r->nodes[ni].ipv6 : "-",
-                             r->nodes[ni].stun_port ? r->nodes[ni].stun_port : 3478,
-                             r->nodes[ni].derp_port ? r->nodes[ni].derp_port : 443,
-                             r->nodes[ni].stun_only ? " stun-only" : "");
-                }
-
-                ml->derp_region_count++;
+                parse_derp_region(ml, region_obj);
             }
             ESP_LOGI(TAG, "DERPMap: parsed %d regions", ml->derp_region_count);
         }
@@ -2123,6 +2224,9 @@ static int poll_map_update(microlink_t *ml, ml_noise_state_t *noise) {
         parse_len -= 4;
     }
 
+    /* Drop members we never read before cJSON builds its DOM */
+    parse_len = ml_json_strip_keys(parse_start, parse_len, s_unused_map_keys);
+
     char saved = parse_start[parse_len];
     parse_start[parse_len] = '\0';
 
@@ -2304,7 +2408,10 @@ void ml_coord_task(void *arg) {
 
         case COORD_FETCH_PEERS:
             ESP_LOGI(TAG, "Fetching peers...");
-            if (do_fetch_peers(ml, &noise) < 0) {
+            bool heavy = ml_heavy_mem_begin(ml);
+            int fetched = do_fetch_peers(ml, &noise);
+            ml_heavy_mem_end(ml, heavy);
+            if (fetched < 0) {
                 ESP_LOGW(TAG, "MapRequest failed, will retry");
                 ml_close_sock(ml->coord_sock);
                 ml->coord_sock = -1;

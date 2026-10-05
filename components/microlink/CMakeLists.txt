@@ -17,6 +17,7 @@ set(SRCS
     "src/ml_at_socket.c"
     "src/ml_net_switch.c"
     "src/ml_config_httpd.c"
+    "src/ml_json_strip.c"
 )
 
 set(REQUIRES
