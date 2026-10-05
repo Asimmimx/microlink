@@ -28,8 +28,10 @@ ESP-IDF commands only work in a shell where ESP-IDF's export script has been run
 Then check:
 
 ```bash
-idf.py --version          # expect: ESP-IDF v5.3 or newer
+python $IDF_PATH/tools/idf.py --version     # expect: ESP-IDF v5.3 or newer
 ```
+
+On Windows, use `python $env:IDF_PATH\tools\idf.py --version`. Plain `idf.py --version` there reports the launcher's own version (e.g. `v1.0.3`), not ESP-IDF's.
 
 If ESP-IDF is missing, install it. This takes 10–20 minutes and about 2 GB:
 

@@ -39,7 +39,8 @@ def main():
         if not line:
             continue
         print(line, flush=True)
-        m = re.search(r'VPN IP: (100\.\d+\.\d+\.\d+)', line)
+        # the app's line, printed once MicroLink reports CONNECTED
+        m = re.search(r'Connected! VPN IP: (100\.\d+\.\d+\.\d+)', line)
         if m and not vpn_ip:
             vpn_ip = m.group(1)
             end = min(end, time.time() + 5)     # a few more lines, then stop
