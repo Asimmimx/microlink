@@ -1,0 +1,125 @@
+<svg xmlns="http://www.w3.org/2000/svg" width="760" height="566" viewBox="0 0 760 566" role="img" aria-labelledby="t d" font-family="-apple-system, BlinkMacSystemFont, 'Segoe UI', Helvetica, Arial, sans-serif">
+<title id="t">MicroLink ESP32 compatibility</title>
+<desc id="d">ESP32-C3: Tested on hardware with this fork. Tested with this fork: no PSRAM, single core; ESP32-S3: Should work: builds, not tested with this fork. Original author&#x27;s main board (PSRAM recommended); ESP32: Should work: builds, not tested with this fork. Original author tested (no PSRAM); ESP32-C6: Should work: builds, not tested with this fork. Builds; single core like C3, more RAM; ESP32-S2: Builds; very little RAM. Builds; needs a board with PSRAM; ESP32-C2: Builds; very little RAM. Builds; 272 KB RAM, likely too small; ESP32-C5 / C61: Needs newer ESP-IDF; not tried. WiFi needs ESP-IDF 5.5+; not built yet; ESP32-H2: Not supported. No WiFi (Thread/Zigbee/BLE only); ESP32-P4: Not supported. No built-in WiFi</desc>
+<style>
+  :root { --surface:#fcfcfb; --ink:#1a1a19; --ink2:#5f5e5a; --rule:#e6e5e0; --chipbg:#f3f2ee; }
+  @media (prefers-color-scheme: dark) {
+    :root { --surface:#1a1a19; --ink:#f3f2ee; --ink2:#a9a8a2; --rule:#33322f; --chipbg:#262624; }
+  }
+  .bg { fill: var(--surface); }
+  .title { fill: var(--ink); font-size: 18px; font-weight: 600; }
+  .sub { fill: var(--ink2); font-size: 12.5px; }
+  .hdr { fill: var(--ink2); font-size: 11.5px; font-weight: 600; letter-spacing: .04em; }
+  .chip { fill: var(--ink); font-size: 14px; font-weight: 600; }
+  .lbl { fill: var(--ink); font-size: 12.5px; }
+  .note { fill: var(--ink2); font-size: 12.5px; }
+  .rule { stroke: var(--rule); stroke-width: 1; }
+  .pill { fill: var(--chipbg); }
+  .good { fill: #0ca30c; } .warning { fill: #fab219; } .serious { fill: #ec835a; } .critical { fill: #d03b3b; } .neutral { fill: #8a8984; }
+  .icon { fill: #ffffff; font-size: 11px; font-weight: 700; }
+  .icon.warning { fill: #1a1a19; }
+</style>
+<rect class="bg" width="760" height="566" rx="10"/>
+<text class="title" x="24" y="34">Which ESP32 works with MicroLink?</text>
+<text class="sub" x="24" y="54">Built with ESP-IDF v5.3.2 using the basic_connect example. Hardware testing on ESP32-C3.</text>
+<text class="hdr" x="24" y="76">CHIP</text>
+<text class="hdr" x="190" y="76">STATUS</text>
+<text class="hdr" x="400" y="76">NOTES</text>
+<line class="rule" x1="24" x2="736" y1="84" y2="84"/>
+<g><title>ESP32-C3: Tested on hardware with this fork. Tested with this fork: no PSRAM, single core</title>
+<text class="chip" x="24" y="111.0">ESP32-C3</text>
+<rect class="pill" x="190" y="93.0" width="86" height="26" rx="13"/>
+<circle class="good" cx="203" cy="106.0" r="9"/>
+<text class="icon good" x="203" y="110.0" text-anchor="middle">✓</text>
+<text class="lbl" x="218" y="110.5">Tested</text>
+<text class="note" x="400" y="110.5">Tested with this fork: no PSRAM, single core</text>
+</g>
+<line class="rule" x1="24" x2="736" y1="128" y2="128"/>
+<g><title>ESP32-S3: Should work: builds, not tested with this fork. Original author&#x27;s main board (PSRAM recommended)</title>
+<text class="chip" x="24" y="155.0">ESP32-S3</text>
+<rect class="pill" x="190" y="137.0" width="123" height="26" rx="13"/>
+<circle class="warning" cx="203" cy="150.0" r="9"/>
+<text class="icon warning" x="203" y="154.0" text-anchor="middle">○</text>
+<text class="lbl" x="218" y="154.5">Should work</text>
+<text class="note" x="400" y="154.5">Original author&#x27;s main board (PSRAM recommended)</text>
+</g>
+<line class="rule" x1="24" x2="736" y1="172" y2="172"/>
+<g><title>ESP32: Should work: builds, not tested with this fork. Original author tested (no PSRAM)</title>
+<text class="chip" x="24" y="199.0">ESP32</text>
+<rect class="pill" x="190" y="181.0" width="123" height="26" rx="13"/>
+<circle class="warning" cx="203" cy="194.0" r="9"/>
+<text class="icon warning" x="203" y="198.0" text-anchor="middle">○</text>
+<text class="lbl" x="218" y="198.5">Should work</text>
+<text class="note" x="400" y="198.5">Original author tested (no PSRAM)</text>
+</g>
+<line class="rule" x1="24" x2="736" y1="216" y2="216"/>
+<g><title>ESP32-C6: Should work: builds, not tested with this fork. Builds; single core like C3, more RAM</title>
+<text class="chip" x="24" y="243.0">ESP32-C6</text>
+<rect class="pill" x="190" y="225.0" width="123" height="26" rx="13"/>
+<circle class="warning" cx="203" cy="238.0" r="9"/>
+<text class="icon warning" x="203" y="242.0" text-anchor="middle">○</text>
+<text class="lbl" x="218" y="242.5">Should work</text>
+<text class="note" x="400" y="242.5">Builds; single core like C3, more RAM</text>
+</g>
+<line class="rule" x1="24" x2="736" y1="260" y2="260"/>
+<g><title>ESP32-S2: Builds; very little RAM. Builds; needs a board with PSRAM</title>
+<text class="chip" x="24" y="287.0">ESP32-S2</text>
+<rect class="pill" x="190" y="269.0" width="94" height="26" rx="13"/>
+<circle class="serious" cx="203" cy="282.0" r="9"/>
+<text class="icon serious" x="203" y="286.0" text-anchor="middle">!</text>
+<text class="lbl" x="218" y="286.5">Low RAM</text>
+<text class="note" x="400" y="286.5">Builds; needs a board with PSRAM</text>
+</g>
+<line class="rule" x1="24" x2="736" y1="304" y2="304"/>
+<g><title>ESP32-C2: Builds; very little RAM. Builds; 272 KB RAM, likely too small</title>
+<text class="chip" x="24" y="331.0">ESP32-C2</text>
+<rect class="pill" x="190" y="313.0" width="94" height="26" rx="13"/>
+<circle class="serious" cx="203" cy="326.0" r="9"/>
+<text class="icon serious" x="203" y="330.0" text-anchor="middle">!</text>
+<text class="lbl" x="218" y="330.5">Low RAM</text>
+<text class="note" x="400" y="330.5">Builds; 272 KB RAM, likely too small</text>
+</g>
+<line class="rule" x1="24" x2="736" y1="348" y2="348"/>
+<g><title>ESP32-C5 / C61: Needs newer ESP-IDF; not tried. WiFi needs ESP-IDF 5.5+; not built yet</title>
+<text class="chip" x="24" y="375.0">ESP32-C5 / C61</text>
+<rect class="pill" x="190" y="357.0" width="94" height="26" rx="13"/>
+<circle class="neutral" cx="203" cy="370.0" r="9"/>
+<text class="icon neutral" x="203" y="374.0" text-anchor="middle">?</text>
+<text class="lbl" x="218" y="374.5">Unknown</text>
+<text class="note" x="400" y="374.5">WiFi needs ESP-IDF 5.5+; not built yet</text>
+</g>
+<line class="rule" x1="24" x2="736" y1="392" y2="392"/>
+<g><title>ESP32-H2: Not supported. No WiFi (Thread/Zigbee/BLE only)</title>
+<text class="chip" x="24" y="419.0">ESP32-H2</text>
+<rect class="pill" x="190" y="401.0" width="57" height="26" rx="13"/>
+<circle class="critical" cx="203" cy="414.0" r="9"/>
+<text class="icon critical" x="203" y="418.0" text-anchor="middle">✕</text>
+<text class="lbl" x="218" y="418.5">No</text>
+<text class="note" x="400" y="418.5">No WiFi (Thread/Zigbee/BLE only)</text>
+</g>
+<line class="rule" x1="24" x2="736" y1="436" y2="436"/>
+<g><title>ESP32-P4: Not supported. No built-in WiFi</title>
+<text class="chip" x="24" y="463.0">ESP32-P4</text>
+<rect class="pill" x="190" y="445.0" width="57" height="26" rx="13"/>
+<circle class="critical" cx="203" cy="458.0" r="9"/>
+<text class="icon critical" x="203" y="462.0" text-anchor="middle">✕</text>
+<text class="lbl" x="218" y="462.5">No</text>
+<text class="note" x="400" y="462.5">No built-in WiFi</text>
+</g>
+<line class="rule" x1="24" x2="736" y1="480" y2="480"/>
+<circle class="good" cx="31" cy="508" r="7"/>
+<text class="icon good" x="31" y="511.5" text-anchor="middle" font-size="9">✓</text>
+<text class="note" x="43" y="512">Tested on hardware with this fork</text>
+<circle class="warning" cx="287.20000000000005" cy="508" r="7"/>
+<text class="icon warning" x="287.20000000000005" y="511.5" text-anchor="middle" font-size="9">○</text>
+<text class="note" x="299.20000000000005" y="512">Should work: builds, not tested with this fork</text>
+<circle class="serious" cx="31" cy="532" r="7"/>
+<text class="icon serious" x="31" y="535.5" text-anchor="middle" font-size="9">!</text>
+<text class="note" x="43" y="536">Builds; very little RAM</text>
+<circle class="critical" cx="223.20000000000002" cy="532" r="7"/>
+<text class="icon critical" x="223.20000000000002" y="535.5" text-anchor="middle" font-size="9">✕</text>
+<text class="note" x="235.20000000000002" y="536">Not supported</text>
+<circle class="neutral" cx="351.4" cy="532" r="7"/>
+<text class="icon neutral" x="351.4" y="535.5" text-anchor="middle" font-size="9">?</text>
+<text class="note" x="363.4" y="536">Needs newer ESP-IDF; not tried</text>
+</svg>
