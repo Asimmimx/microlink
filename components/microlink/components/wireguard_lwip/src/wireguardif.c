@@ -100,6 +100,11 @@ static err_t wg_netif_set_link_on_tcpip(struct tcpip_api_call_data *call) {
 }
 
 static void wg_netif_set_link(struct netif *netif, bool up) {
+	// Called for every received data packet: skip the hand-off when the link
+	// is already in the wanted state (a plain flag read).
+	if (!netif_is_link_up(netif) == !up) {
+		return;
+	}
 	struct wg_link_call c = { .netif = netif, .up = up };
 	if (sys_thread_tcpip(LWIP_CORE_LOCK_QUERY_HOLDER)) {
 		wg_netif_set_link_on_tcpip(&c.call);
