@@ -22,7 +22,8 @@ menu "MicroLink V2 Configuration"
 
     config ML_MAX_PEERS
         int "Maximum simultaneous WireGuard peers"
-        default 16
+        default 16 if SPIRAM
+        default 8
         range 1 64
         help
             Maximum number of peers with active WireGuard tunnels. Each peer
@@ -71,7 +72,8 @@ menu "MicroLink V2 Configuration"
 
     config ML_H2_BUFFER_SIZE_KB
         int "HTTP/2 receive buffer size (KB)"
-        default 512
+        default 512 if SPIRAM
+        default 80
         range 64 2048
         help
             Size of the PSRAM-allocated buffer for receiving HTTP/2 frames
@@ -88,7 +90,8 @@ menu "MicroLink V2 Configuration"
 
     config ML_JSON_BUFFER_SIZE_KB
         int "JSON parse buffer size (KB)"
-        default 512
+        default 512 if SPIRAM
+        default 64
         range 64 2048
         help
             Size of the PSRAM-allocated buffer for parsing JSON MapResponse
