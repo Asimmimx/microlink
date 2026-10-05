@@ -163,9 +163,13 @@ static int noise_send(microlink_t *ml, ml_noise_state_t *noise,
     return ret;
 }
 
-/* Receive and decrypt a Noise transport frame, returns plaintext length */
-static int noise_recv(microlink_t *ml, ml_noise_state_t *noise,
-                        uint8_t *plaintext, size_t max_len) {
+/* Receive and decrypt a Noise transport frame, returns plaintext length.
+ * If plaintext is NULL, a buffer of exactly the frame's plaintext size
+ * (+1 spare byte for a NUL terminator) is allocated and returned via
+ * *alloc_out; the caller frees it. */
+static int noise_recv_impl(microlink_t *ml, ml_noise_state_t *noise,
+                            uint8_t *plaintext, size_t max_len,
+                            uint8_t **alloc_out) {
     /* Read 3-byte frame header */
     uint8_t hdr[3];
     if (coord_recv(ml, hdr, 3) < 0) return -1;
@@ -185,6 +189,15 @@ static int noise_recv(microlink_t *ml, ml_noise_state_t *noise,
 
     uint8_t *ciphertext = ml_psram_malloc(ct_len);
     if (!ciphertext) return -1;
+
+    if (!plaintext) {
+        plaintext = ml_psram_malloc(pt_len + 1);
+        if (!plaintext) {
+            free(ciphertext);
+            return -1;
+        }
+        *alloc_out = plaintext;
+    }
 
     /* Header already consumed — payload read MUST complete or stream
      * alignment is permanently lost. Retry EAGAIN (coord_recv returns -1
@@ -213,6 +226,23 @@ static int noise_recv(microlink_t *ml, ml_noise_state_t *noise,
 
     free(ciphertext);
     return (int)pt_len;
+}
+
+static int noise_recv(microlink_t *ml, ml_noise_state_t *noise,
+                        uint8_t *plaintext, size_t max_len) {
+    return noise_recv_impl(ml, noise, plaintext, max_len, NULL);
+}
+
+/* Like noise_recv(), but sizes the buffer to the frame instead of requiring
+ * a worst-case 64KB one. *out is NULL on failure. */
+static int noise_recv_alloc(microlink_t *ml, ml_noise_state_t *noise, uint8_t **out) {
+    *out = NULL;
+    int len = noise_recv_impl(ml, noise, NULL, 65535, out);
+    if (len < 0 && *out) {
+        free(*out);
+        *out = NULL;
+    }
+    return len;
 }
 
 /* ============================================================================
@@ -2002,14 +2032,15 @@ static int poll_map_update(microlink_t *ml, ml_noise_state_t *noise) {
     struct timeval tv_recv = { .tv_sec = 2, .tv_usec = 0 };
     ml_setsockopt(ml->coord_sock, SOL_SOCKET, SO_RCVTIMEO, &tv_recv, sizeof(tv_recv));
 
-    uint8_t *frame_buf = ml_psram_malloc(65536);
-    if (!frame_buf) return 0;
-
-    int frame_len = noise_recv(ml, noise, frame_buf, 65536);
+    /* Sized to the frame: long-poll frames are usually small, and a fixed
+     * 64KB allocation per poll often fails on boards without PSRAM, which
+     * left the data unread and stalled the long-poll. */
+    uint8_t *frame_buf = NULL;
+    int frame_len = noise_recv_alloc(ml, noise, &frame_buf);
 
     if (frame_len <= 0) {
-        free(frame_buf);
         int saved_errno = errno;
+        free(frame_buf);
         /* EAGAIN/EWOULDBLOCK = no data yet = not an error */
         if (saved_errno == EAGAIN || saved_errno == EWOULDBLOCK) return 0;
         return frame_len;  /* Real error or connection closed */
