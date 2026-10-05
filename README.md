@@ -26,7 +26,7 @@ Put an ESP32 on your [Tailscale](https://tailscale.com) network. Once it's on yo
 | ESP32-H2 | ❌ No | No WiFi (Thread/Zigbee/BLE only) |
 | ESP32-P4 | ❌ No | No built-in WiFi |
 
-"Should work" means it builds with ESP-IDF v5.3.2 using this fork, but hasn't been run on hardware with this fork yet. The RAM numbers come from an ESP32-C3 with part of its memory held back to mimic a smaller chip ([details](#what-this-fork-fixes)). If you try one, please [open an issue](https://github.com/Asimmimx/microlink/issues) with the result.
+"Should work" means it builds with ESP-IDF v5.3.2 using this fork, but hasn't been run on hardware with this fork yet. The RAM numbers come from an ESP32-C3 with part of its memory held back to mimic a smaller chip ([details](CHANGELOG.md)). If you try one, please [open an issue](https://github.com/Asimmimx/microlink/issues) with the result.
 
 </details>
 
@@ -151,26 +151,18 @@ echo "hello" | nc -u 100.x.y.z 9000      # the example echoes it back
 
 ## What this fork fixes
 
-Each fix is a separate commit, and each one was checked on hardware before and after the change.
+Compared with upstream v2.1.0. Every item was checked on real hardware; the numbers are from an ESP32-C3 without PSRAM:
 
-| Problem | Before | After |
-|---|---|---|
-| Single-core chips (C3/C6/H2) | Reboot loop on start | Connects normally |
-| Boards without PSRAM | `MapRequest failed` forever (out of memory) | Peer list loads (80 KB buffer) |
-| Long-poll took 64 KB per message | Control connection lost when RAM is tight | Stays connected |
-| FreeRTOS at 100 Hz (ESP-IDF default) | Watchdog every 5 s, app never runs ([#36](https://github.com/CamM2325/microlink/issues/36)) | No watchdog trips |
-| Tunnel MTU 1420 instead of 1280 | Oversized packets to some peers ([#34](https://github.com/CamM2325/microlink/issues/34)) | Uses Tailscale's 1280 |
-| Crash when a packet arrived while a socket was opening ([#17](https://github.com/CamM2325/microlink/issues/17)) | Load access fault in `udp_input`, device reboots | lwIP is only touched from its own thread. Verified with ESP-IDF's `LWIP_CHECK_THREAD_SAFETY` |
-| Peak RAM while joining the tailnet | On an ESP32-C3, free RAM dipped to 9.7 KB | Lowest point 86–93 KB; still connects with only 185 KB free at boot. Unused JSON fields dropped, DERP map parsed one region at a time, exact-size buffer |
-| Web config panel on the original ESP32 | Build error (no temperature sensor) | Builds; the temperature shows as empty |
-| Packet loss under load ([#30](https://github.com/CamM2325/microlink/pull/30), [#32](https://github.com/CamM2325/microlink/pull/32), [#38](https://github.com/CamM2325/microlink/pull/38)) | Every packet logged at INFO, so the UART throttled the tunnel. 50 msg/s: 71% loss, 784 ms | Per-packet logs at DEBUG, deeper RX queue. 100 msg/s: 0% loss, 19 ms |
-| DERP relay hardcoded to Dallas ([#19](https://github.com/CamM2325/microlink/issues/19)) | Relay latency from Turkey 168 ms | Closest region picked by measurement and remembered (Nuremberg/Warsaw, about 60 ms) |
-| Failed DERP connects ([#37](https://github.com/CamM2325/microlink/pull/37)) | ~10 KB leaked per failed attempt, and no retry after 3 failures | No leak; retries with backoff until connected |
-| Peer "online" status ([#24](https://github.com/CamM2325/microlink/pull/24)) | Every peer reported online | Matches `tailscale status` |
-| UDP RX task priority ([#39](https://github.com/CamM2325/microlink/pull/39)) | Shared ESP-IDF's reserved Bluetooth controller priority | Below the system tasks; same throughput |
-| Setup | `sdkconfig.credentials` was never read. The Windows build broke on a symlink. The example only built for ESP32-S3 | Credentials file works, Windows builds, and `set-target` works for any chip |
+- **Runs on ESP32-C3/C6 and boards without PSRAM.** Upstream reboot-looped on single-core chips and ran out of memory without PSRAM.
+- **No more crash** when a packet arrives while a socket is opening ([#17](https://github.com/CamM2325/microlink/issues/17)).
+- **Much less RAM to join a tailnet.** The lowest point was 9.7 KB free; now it's 84–93 KB.
+- **No packet loss under load.** 50 msg/s used to lose 71% of packets with 784 ms latency; 100 msg/s now loses none, at 19 ms.
+- **Closest DERP relay instead of Dallas** ([#19](https://github.com/CamM2325/microlink/issues/19)). From Turkey, relay latency dropped from 168 ms to about 60 ms.
+- **DERP keeps reconnecting and no longer leaks memory** ([#37](https://github.com/CamM2325/microlink/pull/37)).
+- **Correct peer online status** ([#24](https://github.com/CamM2325/microlink/pull/24)), plus fixes for [#34](https://github.com/CamM2325/microlink/issues/34), [#36](https://github.com/CamM2325/microlink/issues/36) and [#39](https://github.com/CamM2325/microlink/pull/39).
+- **Easier setup:** one component folder, Windows builds, any chip, and a credentials file that actually gets read.
 
-Upstream fixes are rewritten and checked here, not merged blind; only what could be reproduced or measured on hardware is in. Still open: unvalidated endpoints for peers behind CGNAT ([#18](https://github.com/CamM2325/microlink/issues/18)) and stale endpoints for peers reached through DERP ([#41](https://github.com/CamM2325/microlink/issues/41)), which need a phone on mobile data to test; registration errors being silent ([#23](https://github.com/CamM2325/microlink/pull/23)); and RST_STREAM/GOAWAY on the long-poll ([#40](https://github.com/CamM2325/microlink/pull/40)).
+Full list with before/after measurements, behaviour changes and what's still open: **[CHANGELOG.md](CHANGELOG.md)**.
 
 ---
 
@@ -182,6 +174,7 @@ Upstream fixes are rewritten and checked here, not merged blind; only what could
 | Changed `sdkconfig.credentials` but nothing changed | Delete the `sdkconfig` file and build again. Settings are only copied in on the first build |
 | First message right after boot gets no reply | Normal. The first tunnel takes about 15 s to set up |
 | `Failed to resolve component 'wireguard_lwip'` | You're on the old upstream repo. Use this fork |
+| `DERP connect attempt N failed, retrying in ...` | Outbound HTTPS (port 443) is blocked or the internet is down. It keeps retrying by itself |
 
 More in the [full reference](docs/REFERENCE.md#troubleshooting).
 

@@ -484,11 +484,11 @@ MicroLink V2 Configuration
 | Option | Default | Description |
 |--------|---------|-------------|
 | `ML_ZERO_COPY_WG` | `n` | Zero-copy WireGuard via raw lwIP PCB (for 30fps+ streaming). See [High-Throughput Mode](#high-throughput-mode-zero-copy-wireguard). |
-| `ML_MAX_PEERS` | `16` | Maximum simultaneous active WireGuard tunnels (1-64). Each uses ~200 bytes. This is NOT the tailnet size limit — MicroLink tracks all peers (300+) but only maintains active tunnels to this many at once. Reduce to 8 for non-PSRAM. |
+| `ML_MAX_PEERS` | `16` with PSRAM, `8` without | Maximum simultaneous active WireGuard tunnels (1-64). Each uses ~200 bytes. This is NOT the tailnet size limit — MicroLink tracks all peers (300+) but only maintains active tunnels to this many at once. Reduce to 8 for non-PSRAM. |
 | `ML_NVS_MAX_PEERS` | `64` | Peers cached in NVS flash (16-1024). Persists across reboots so DISCO probing starts immediately. Each entry: 92 bytes. LRU eviction when full. |
 | `ML_PRIORITY_PEER_IP` | Empty | Priority peer VPN IP (e.g., `100.x.y.z`). Guaranteed a WG slot even when peer table is full — LRU non-priority peer is evicted. Also settable via web UI. |
-| `ML_H2_BUFFER_SIZE_KB` | `512` | H2 receive buffer (64-2048 KB, PSRAM-backed). Size determines max tailnet: 64KB ≈ 30 peers, 512KB ≈ 300 peers, 2048KB ≈ 1200 peers. |
-| `ML_JSON_BUFFER_SIZE_KB` | `512` | JSON parse buffer (64-2048 KB, PSRAM-backed). cJSON DOM uses 2-3x raw JSON size. Match to H2 buffer. |
+| `ML_H2_BUFFER_SIZE_KB` | `512` with PSRAM, `80` without | Largest MapResponse accepted (64-2048 KB). The buffer is allocated at the response's actual size, so this is a cap, not a reservation. Rough guide: 64 KB ≈ 30 peers, 512 KB ≈ 300 peers, 2048 KB ≈ 1200 peers. |
+| `ML_JSON_BUFFER_SIZE_KB` | `512` with PSRAM, `64` without | Kept for compatibility. The initial MapResponse no longer uses a separate JSON buffer. |
 
 #### Credentials
 
@@ -535,9 +535,9 @@ MicroLink V2 Configuration
 V2 uses fully dynamic DERP discovery — no manual region configuration needed. On startup, MicroLink:
 
 1. Parses the `DERPMap` from the Tailscale MapResponse (supports up to 32 regions)
-2. Selects the optimal home region based on latency
-3. Automatically fails over to other regions if the primary becomes unavailable
-4. Ensures the ESP32 connects to the same DERP region it advertises as `PreferredDERP`
+2. Before the first DERP connect, times a TCP connect to one node in every region and picks the fastest. It only switches away from the current region if the new one is clearly faster (at least 10 ms and 20%). The choice is stored in NVS (key `derp_pref`) and reported at the next registration.
+3. Automatically fails over to other nodes if the primary becomes unavailable, and keeps retrying the connection with backoff (2–60 s)
+4. Ensures the ESP32 connects to the same DERP region it advertises as `PreferredDERP`, and sends an endpoint update as soon as that region changes
 
 **Important:** The ESP32 must connect to the same DERP region it advertises. Tailscale peers send packets to whichever DERP region you advertise as your `PreferredDERP`. If there's a mismatch, DISCO PING/PONG packets won't reach your device.
 
