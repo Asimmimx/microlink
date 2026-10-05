@@ -1,5 +1,36 @@
 # MicroLink v2 — ESP32 Tailscale Client
 
+> **About this fork.** This is a maintained fork of
+> [CamM2325/microlink](https://github.com/CamM2325/microlink), which has had no
+> commits since March 2026. It only adds fixes that were reproduced and then
+> verified on real hardware (an ESP32-C3 without PSRAM, ESP-IDF v5.3.2). Each
+> fix is its own commit, so you can review or cherry-pick them one at a time.
+>
+> | Fix | Upstream | How it was verified |
+> |-----|----------|---------------------|
+> | Single-core targets (ESP32-C3/C6/H2): tasks pinned to Core 1 tripped an assert and reboot-looped the device | — | Before: reboot loop after `microlink_start()`. After: connects and stays up |
+> | No-PSRAM: `do_fetch_peers()` needed H2 + JSON + 64KB scratch buffers at once and ran out of memory | — | Before: `MapRequest failed` forever. After: 25KB MapResponse parsed with `ML_H2_BUFFER_SIZE_KB=80` |
+> | Long-poll allocated a fixed 64KB buffer per frame, so under memory pressure updates went unread and the control connection was reset | — | Under memory pressure (largest free block ~22KB): before, 0 updates and the server reset the connection after 70s with no recovery. After, all updates received and it stayed connected |
+> | `pdMS_TO_TICKS(1)`/`(5)` round down to 0 ticks at `CONFIG_FREERTOS_HZ=100` (the ESP-IDF default), so the DERP task busy-spins | [#36](https://github.com/CamM2325/microlink/issues/36) | At 100 Hz with a 5s task watchdog: before, the watchdog fired every 5s (`IDLE` starved by `ml_derp_tx`, ~10k loops/s) and the app task never ran. After, 0 watchdog trips, ~92 loops/s |
+> | WireGuard netif MTU was 1420; Tailscale's tunnel MTU is 1280 | [#34](https://github.com/CamM2325/microlink/issues/34) | No regression: pings of 64–1400 bytes all pass. A Windows peer accepted oversized packets even before the fix, so that setup couldn't show the improvement; the issue reporter saw it with a Linux peer |
+>
+> Not merged yet: open upstream PRs, and changes that couldn't be tested here.
+> They are added only after they've been tested on hardware.
+>
+> **Building on Windows:** git checks out `components/wireguard_lwip` as a
+> plain file, not a symlink. List both component folders in your project's
+> `CMakeLists.txt`:
+>
+> ```cmake
+> set(EXTRA_COMPONENT_DIRS
+>     "<path>/microlink/components/microlink"
+>     "<path>/microlink/components/microlink/components/wireguard_lwip"
+> )
+> ```
+>
+> **ESP32-C3 / no PSRAM:** `CONFIG_ML_H2_BUFFER_SIZE_KB=80` (fits a small
+> tailnet), `CONFIG_ML_MAX_PEERS=8`, `CONFIG_ML_ENABLE_CONFIG_HTTPD=n`.
+
 Production-ready Tailscale VPN client for the ESP32 platform with WiFi and 4G cellular support. Should work on most ESP32 variants (ESP32, ESP32-S3, ESP32-P4, etc.) — ESP32-S3 with PSRAM recommended for production.
 
 ## Features
