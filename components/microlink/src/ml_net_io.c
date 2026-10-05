@@ -49,12 +49,22 @@ static pkt_type_t classify_packet(const uint8_t *data, size_t len) {
     return PKT_UNKNOWN;
 }
 
+/* A full RX queue drops the packet. Say so, but rarely: logging every drop
+ * would slow the receive path further. */
+static void report_rx_drop(const char *what) {
+    static uint32_t drops = 0;
+    if (++drops % 100 == 1) {
+        ESP_LOGW(TAG, "%s RX queue full: %lu packet(s) dropped so far",
+                 what, (unsigned long)drops);
+    }
+}
+
 static void route_udp_packet(microlink_t *ml, uint8_t *data, size_t len,
                               uint32_t src_ip, uint16_t src_port) {
     pkt_type_t type = classify_packet(data, len);
 
     /* Log ALL direct UDP packets for debugging */
-    ESP_LOGI(TAG, "UDP RX: %d bytes from %d.%d.%d.%d:%d type=%s hdr=%02x",
+    ESP_LOGD(TAG, "UDP RX: %d bytes from %d.%d.%d.%d:%d type=%s hdr=%02x",
              (int)len,
              (int)((src_ip >> 24) & 0xFF), (int)((src_ip >> 16) & 0xFF),
              (int)((src_ip >> 8) & 0xFF), (int)(src_ip & 0xFF),
@@ -80,11 +90,13 @@ static void route_udp_packet(microlink_t *ml, uint8_t *data, size_t len,
     case PKT_DISCO:
         if (xQueueSend(ml->disco_rx_queue, &pkt, 0) != pdTRUE) {
             free(data);
+            report_rx_drop("DISCO");
         }
         break;
     case PKT_WIREGUARD:
         if (xQueueSend(ml->wg_rx_queue, &pkt, 0) != pdTRUE) {
             free(data);
+            report_rx_drop("WireGuard");
         }
         break;
     default:

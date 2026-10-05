@@ -75,8 +75,11 @@ static void on_udp_rx(microlink_udp_socket_t *sock, uint32_t src_ip, uint16_t sr
     /* Strip trailing newline if present */
     if (copy_len > 0 && msg[copy_len - 1] == '\n') msg[copy_len - 1] = '\0';
 
-    ESP_LOGI(TAG, "UDP RX #%lu from %s:%u [%d bytes]: \"%s\"",
-             (unsigned long)msg_rx_count, ip_str, src_port, (int)len, msg);
+    /* Log the first few messages and then every 100th at INFO. Logging every
+     * packet over a 115200-baud UART throttles the whole tunnel under load. */
+    esp_log_level_t lvl = (msg_rx_count <= 5 || msg_rx_count % 100 == 0) ? ESP_LOG_INFO : ESP_LOG_DEBUG;
+    ESP_LOG_LEVEL_LOCAL(lvl, TAG, "UDP RX #%lu from %s:%u [%d bytes]: \"%s\"",
+                        (unsigned long)msg_rx_count, ip_str, src_port, (int)len, msg);
 
     /* Echo back with prefix */
     char reply[300];
@@ -84,7 +87,7 @@ static void on_udp_rx(microlink_udp_socket_t *sock, uint32_t src_ip, uint16_t sr
     if (reply_len > 0) {
         esp_err_t err = microlink_udp_send(sock, src_ip, src_port, reply, reply_len);
         if (err == ESP_OK) {
-            ESP_LOGI(TAG, "UDP TX echo -> %s:%u", ip_str, src_port);
+            ESP_LOGD(TAG, "UDP TX echo -> %s:%u", ip_str, src_port);
         } else {
             ESP_LOGW(TAG, "UDP TX echo failed: %d (handshake in progress)", err);
         }

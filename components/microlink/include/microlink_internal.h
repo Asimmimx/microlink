@@ -78,8 +78,8 @@ extern "C" {
 
 /* Queue depths */
 #define ML_DERP_TX_QUEUE_DEPTH  16
-#define ML_DISCO_RX_QUEUE_DEPTH 8
-#define ML_WG_RX_QUEUE_DEPTH    8
+#define ML_DISCO_RX_QUEUE_DEPTH 16
+#define ML_WG_RX_QUEUE_DEPTH    32      /* slots hold pointers, not packets */
 #define ML_STUN_RX_QUEUE_DEPTH  4
 #define ML_COORD_CMD_QUEUE_DEPTH 4
 #define ML_PEER_UPDATE_QUEUE_DEPTH 400
