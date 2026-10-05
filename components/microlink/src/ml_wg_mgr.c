@@ -244,6 +244,7 @@ static esp_err_t wg_init_interface(microlink_t *ml) {
         free(netif);
         return ESP_FAIL;
     }
+    netif->mtu = ML_TAILSCALE_MTU;
 
     /* Set IP addresses: our VPN IP (or temporary until we get one) */
     if (ml->vpn_ip != 0) {

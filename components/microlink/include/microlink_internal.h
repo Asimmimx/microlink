@@ -90,6 +90,11 @@ extern "C" {
 
 /* DERP */
 #define ML_DERP_REGION          9       /* Dallas (dfw) */
+
+/* Tailscale's tunnel MTU (tstun.DefaultTUNMTU). wireguard_lwip defaults to
+ * plain WireGuard's 1420, which makes us advertise MSS 1380 and send
+ * packets larger than peers' 1280-byte TUN devices accept. */
+#define ML_TAILSCALE_MTU        1280
 #define ML_DERP_HOST            "derp9e.tailscale.com"
 #define ML_DERP_PORT            443
 
