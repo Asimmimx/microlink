@@ -1,11 +1,47 @@
 [
- {"chip": "ESP32-C3", "status": "tested", "note": "Tested with this fork: no PSRAM, single core"},
- {"chip": "ESP32-S3", "status": "builds", "note": "Original author's main board (PSRAM recommended)"},
- {"chip": "ESP32", "status": "builds", "note": "Original author tested (no PSRAM)"},
- {"chip": "ESP32-C6", "status": "builds", "note": "Builds; single core like C3, more RAM"},
- {"chip": "ESP32-S2", "status": "tight", "note": "Builds; needs a board with PSRAM"},
- {"chip": "ESP32-C2", "status": "tight", "note": "Builds; 272 KB RAM, likely too small"},
- {"chip": "ESP32-C5 / C61", "status": "unknown", "note": "WiFi needs ESP-IDF 5.5+; not built yet"},
- {"chip": "ESP32-H2", "status": "no", "note": "No WiFi (Thread/Zigbee/BLE only)"},
- {"chip": "ESP32-P4", "status": "no", "note": "No built-in WiFi"}
+ {
+  "chip": "ESP32-C3",
+  "status": "tested",
+  "note": "Tested with this fork: no PSRAM, single core"
+ },
+ {
+  "chip": "ESP32-S3",
+  "status": "builds",
+  "note": "Original author's main board (PSRAM recommended)"
+ },
+ {
+  "chip": "ESP32",
+  "status": "builds",
+  "note": "Original author tested (no PSRAM)"
+ },
+ {
+  "chip": "ESP32-C6",
+  "status": "builds",
+  "note": "Builds; single core like C3, more RAM"
+ },
+ {
+  "chip": "ESP32-S2",
+  "status": "tight",
+  "note": "Builds; RAM unmeasured, use a board with PSRAM"
+ },
+ {
+  "chip": "ESP32-C2",
+  "status": "tight",
+  "note": "~95 KB free after WiFi; needs ~120-140 KB"
+ },
+ {
+  "chip": "ESP32-C5 / C61",
+  "status": "unknown",
+  "note": "WiFi needs ESP-IDF 5.5+; not built yet"
+ },
+ {
+  "chip": "ESP32-H2",
+  "status": "no",
+  "note": "No WiFi (Thread/Zigbee/BLE only)"
+ },
+ {
+  "chip": "ESP32-P4",
+  "status": "no",
+  "note": "No built-in WiFi"
+ }
 ]

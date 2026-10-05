@@ -1,6 +1,6 @@
 <svg xmlns="http://www.w3.org/2000/svg" width="760" height="566" viewBox="0 0 760 566" role="img" aria-labelledby="t d" font-family="-apple-system, BlinkMacSystemFont, 'Segoe UI', Helvetica, Arial, sans-serif">
 <title id="t">MicroLink ESP32 compatibility</title>
-<desc id="d">ESP32-C3: Tested on hardware with this fork. Tested with this fork: no PSRAM, single core; ESP32-S3: Should work: builds, not tested with this fork. Original author&#x27;s main board (PSRAM recommended); ESP32: Should work: builds, not tested with this fork. Original author tested (no PSRAM); ESP32-C6: Should work: builds, not tested with this fork. Builds; single core like C3, more RAM; ESP32-S2: Builds; very little RAM. Builds; needs a board with PSRAM; ESP32-C2: Builds; very little RAM. Builds; 272 KB RAM, likely too small; ESP32-C5 / C61: Needs newer ESP-IDF; not tried. WiFi needs ESP-IDF 5.5+; not built yet; ESP32-H2: Not supported. No WiFi (Thread/Zigbee/BLE only); ESP32-P4: Not supported. No built-in WiFi</desc>
+<desc id="d">ESP32-C3: Tested on hardware with this fork. Tested with this fork: no PSRAM, single core; ESP32-S3: Should work: builds, not tested with this fork. Original author&#x27;s main board (PSRAM recommended); ESP32: Should work: builds, not tested with this fork. Original author tested (no PSRAM); ESP32-C6: Should work: builds, not tested with this fork. Builds; single core like C3, more RAM; ESP32-S2: Builds; very little RAM. Builds; RAM unmeasured, use a board with PSRAM; ESP32-C2: Builds; very little RAM. ~95 KB free after WiFi; needs ~120-140 KB; ESP32-C5 / C61: Needs newer ESP-IDF; not tried. WiFi needs ESP-IDF 5.5+; not built yet; ESP32-H2: Not supported. No WiFi (Thread/Zigbee/BLE only); ESP32-P4: Not supported. No built-in WiFi</desc>
 <style>
   :root { --surface:#fcfcfb; --ink:#1a1a19; --ink2:#5f5e5a; --rule:#e6e5e0; --chipbg:#f3f2ee; }
   @media (prefers-color-scheme: dark) {
@@ -62,22 +62,22 @@
 <text class="note" x="400" y="242.5">Builds; single core like C3, more RAM</text>
 </g>
 <line class="rule" x1="24" x2="736" y1="260" y2="260"/>
-<g><title>ESP32-S2: Builds; very little RAM. Builds; needs a board with PSRAM</title>
+<g><title>ESP32-S2: Builds; very little RAM. Builds; RAM unmeasured, use a board with PSRAM</title>
 <text class="chip" x="24" y="287.0">ESP32-S2</text>
 <rect class="pill" x="190" y="269.0" width="94" height="26" rx="13"/>
 <circle class="serious" cx="203" cy="282.0" r="9"/>
 <text class="icon serious" x="203" y="286.0" text-anchor="middle">!</text>
 <text class="lbl" x="218" y="286.5">Low RAM</text>
-<text class="note" x="400" y="286.5">Builds; needs a board with PSRAM</text>
+<text class="note" x="400" y="286.5">Builds; RAM unmeasured, use a board with PSRAM</text>
 </g>
 <line class="rule" x1="24" x2="736" y1="304" y2="304"/>
-<g><title>ESP32-C2: Builds; very little RAM. Builds; 272 KB RAM, likely too small</title>
+<g><title>ESP32-C2: Builds; very little RAM. ~95 KB free after WiFi; needs ~120-140 KB</title>
 <text class="chip" x="24" y="331.0">ESP32-C2</text>
 <rect class="pill" x="190" y="313.0" width="94" height="26" rx="13"/>
 <circle class="serious" cx="203" cy="326.0" r="9"/>
 <text class="icon serious" x="203" y="330.0" text-anchor="middle">!</text>
 <text class="lbl" x="218" y="330.5">Low RAM</text>
-<text class="note" x="400" y="330.5">Builds; 272 KB RAM, likely too small</text>
+<text class="note" x="400" y="330.5">~95 KB free after WiFi; needs ~120-140 KB</text>
 </g>
 <line class="rule" x1="24" x2="736" y1="348" y2="348"/>
 <g><title>ESP32-C5 / C61: Needs newer ESP-IDF; not tried. WiFi needs ESP-IDF 5.5+; not built yet</title>

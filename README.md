@@ -20,15 +20,25 @@ Put an ESP32 on your [Tailscale](https://tailscale.com) network. Once it's on yo
 | ESP32-S3 | 🟡 Should work | The original author's main board. PSRAM recommended |
 | ESP32 | 🟡 Should work | Tested by the original author (no PSRAM) |
 | ESP32-C6 | 🟡 Should work | Builds. Single core like the C3, with more RAM |
-| ESP32-S2 | 🟠 Low RAM | Builds, but only about 46 KB RAM is left. Use a board with PSRAM |
-| ESP32-C2 | 🟠 Low RAM | Builds, but 272 KB RAM with no PSRAM option is likely too small |
+| ESP32-S2 | 🟠 Low RAM | Builds. RAM use not measured on an S2 yet; use a board with PSRAM (most S2 boards have it) |
+| ESP32-C2 | 🟠 Low RAM | Builds. MicroLink needs about 120–140 KB free after WiFi connects; a C2 has about 95 KB by default ([Espressif](https://developer.espressif.com/blog/2025/11/esp32c2-ram-optimization/)) |
 | ESP32-C5 / C61 | ❔ Unknown | WiFi support needs ESP-IDF 5.5+. Not built yet |
 | ESP32-H2 | ❌ No | No WiFi (Thread/Zigbee/BLE only) |
 | ESP32-P4 | ❌ No | No built-in WiFi |
 
-"Should work" means it builds with ESP-IDF v5.3.2 using this fork, but hasn't been run on hardware with this fork yet. If you try one, please [open an issue](https://github.com/Asimmimx/microlink/issues) with the result.
+"Should work" means it builds with ESP-IDF v5.3.2 using this fork, but hasn't been run on hardware with this fork yet. The RAM numbers come from an ESP32-C3 with part of its memory held back to mimic a smaller chip ([details](#what-this-fork-fixes)). If you try one, please [open an issue](https://github.com/Asimmimx/microlink/issues) with the result.
 
 </details>
+
+---
+
+## Set it up with an AI assistant
+
+Working with Claude Code, Codex, Cursor or Copilot? Open this repository and say:
+
+> *Set up MicroLink on my ESP32 board.*
+
+The assistant reads [`AGENTS.md`](AGENTS.md). It detects your chip and serial port, asks you only for your WiFi details and Tailscale key, then builds, flashes and checks the connection.
 
 ---
 
@@ -150,6 +160,8 @@ Each fix is a separate commit, and each one was checked on hardware before and a
 | Long-poll took 64 KB per message | Control connection lost when RAM is tight | Stays connected |
 | FreeRTOS at 100 Hz (ESP-IDF default) | Watchdog every 5 s, app never runs ([#36](https://github.com/CamM2325/microlink/issues/36)) | No watchdog trips |
 | Tunnel MTU 1420 instead of 1280 | Oversized packets to some peers ([#34](https://github.com/CamM2325/microlink/issues/34)) | Uses Tailscale's 1280 |
+| Crash when a packet arrived while a socket was opening ([#17](https://github.com/CamM2325/microlink/issues/17)) | Load access fault in `udp_input`, device reboots | lwIP is only touched from its own thread. Verified with ESP-IDF's `LWIP_CHECK_THREAD_SAFETY` |
+| Peak RAM while joining the tailnet | On an ESP32-C3, free RAM dipped to 9.7 KB | Lowest point 86–93 KB; still connects with only 185 KB free at boot. Unused JSON fields dropped, DERP map parsed one region at a time, exact-size buffer |
 | Web config panel on the original ESP32 | Build error (no temperature sensor) | Builds; the temperature shows as empty |
 | Setup | `sdkconfig.credentials` was never read. The Windows build broke on a symlink. The example only built for ESP32-S3 | Credentials file works, Windows builds, and `set-target` works for any chip |
 
