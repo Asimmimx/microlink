@@ -22,7 +22,10 @@
 #include "esp_heap_caps.h"
 #include "esp_wifi.h"
 #include "esp_timer.h"
+#include "soc/soc_caps.h"
+#if SOC_TEMP_SENSOR_SUPPORTED   /* not on the original ESP32 */
 #include "driver/temperature_sensor.h"
+#endif
 #include "nvs_flash.h"
 #include "nvs.h"
 #include "cJSON.h"
@@ -63,8 +66,10 @@ struct ml_config_ctx {
     /* WiFi multi-SSID list */
     ml_config_wifi_list_t wifi_list;
 
+#if SOC_TEMP_SENSOR_SUPPORTED
     /* Temperature sensor */
     temperature_sensor_handle_t temp_sensor;
+#endif
 
     /* HTTP server */
     httpd_handle_t httpd;
@@ -698,6 +703,7 @@ static esp_err_t handler_monitor(httpd_req_t *req) {
     if (!json) return ESP_FAIL;
 
     /* Temperature */
+#if SOC_TEMP_SENSOR_SUPPORTED
     float temp_c = 0;
     if (ctx->temp_sensor) {
         if (temperature_sensor_get_celsius(ctx->temp_sensor, &temp_c) == ESP_OK) {
@@ -708,6 +714,9 @@ static esp_err_t handler_monitor(httpd_req_t *req) {
     } else {
         cJSON_AddNullToObject(json, "temp_c");
     }
+#else
+    cJSON_AddNullToObject(json, "temp_c");
+#endif
 
     /* WiFi RSSI */
     int rssi = 0;
@@ -1084,6 +1093,7 @@ ml_config_ctx_t *ml_config_httpd_init(void) {
     config_load_peers(ctx);
     config_load_wifi_list(ctx);
 
+#if SOC_TEMP_SENSOR_SUPPORTED
     /* Initialize temperature sensor */
     temperature_sensor_config_t tsens_cfg = TEMPERATURE_SENSOR_CONFIG_DEFAULT(10, 80);
     if (temperature_sensor_install(&tsens_cfg, &ctx->temp_sensor) == ESP_OK) {
@@ -1093,6 +1103,7 @@ ml_config_ctx_t *ml_config_httpd_init(void) {
         ctx->temp_sensor = NULL;
         ESP_LOGW(TAG, "Temperature sensor init failed (non-critical)");
     }
+#endif
 
     ESP_LOGI(TAG, "Config module initialized");
     return ctx;
@@ -1149,10 +1160,12 @@ void ml_config_httpd_stop(ml_config_ctx_t *ctx) {
 void ml_config_httpd_deinit(ml_config_ctx_t *ctx) {
     if (!ctx) return;
     ml_config_httpd_stop(ctx);
+#if SOC_TEMP_SENSOR_SUPPORTED
     if (ctx->temp_sensor) {
         temperature_sensor_disable(ctx->temp_sensor);
         temperature_sensor_uninstall(ctx->temp_sensor);
     }
+#endif
     if (ctx->nvs) nvs_close(ctx->nvs);
     if (ctx->peer_mutex) vSemaphoreDelete(ctx->peer_mutex);
     free(ctx);
