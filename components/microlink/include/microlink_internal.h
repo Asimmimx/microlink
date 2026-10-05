@@ -27,6 +27,8 @@
 #include "mbedtls/entropy.h"
 #include "mbedtls/ctr_drbg.h"
 #include "esp_heap_caps.h"
+#include "lwip/tcpip.h"
+#include "lwip/priv/tcpip_priv.h"   /* tcpip_api_call() */
 
 #ifdef CONFIG_ML_ZERO_COPY_WG
 #include "lwip/udp.h"
@@ -473,6 +475,30 @@ struct microlink_s {
     ml_zerocopy_t zc;
 #endif
 };
+
+/* lwIP's raw API (udp_*, netif_*) may only be used on tcpip_thread (or with
+ * the core lock held). Run fn there and wait for it; if we already are on
+ * tcpip_thread, just call it. Safe from any task. */
+typedef struct {
+    struct tcpip_api_call_data call;   /* must be first */
+    void (*fn)(void *arg);
+    void *arg;
+} ml_tcpip_call_t;
+
+static inline err_t ml_tcpip_trampoline(struct tcpip_api_call_data *call) {
+    ml_tcpip_call_t *c = (ml_tcpip_call_t *)call;
+    c->fn(c->arg);
+    return ERR_OK;
+}
+
+static inline void ml_tcpip_run(void (*fn)(void *arg), void *arg) {
+    if (sys_thread_tcpip(LWIP_CORE_LOCK_QUERY_HOLDER)) {
+        fn(arg);
+        return;
+    }
+    ml_tcpip_call_t c = { .fn = fn, .arg = arg };
+    tcpip_api_call(ml_tcpip_trampoline, &c.call);
+}
 
 /* ============================================================================
  * Internal Function Declarations (per-module)

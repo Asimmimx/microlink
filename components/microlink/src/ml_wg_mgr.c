@@ -181,6 +181,32 @@ static err_t wg_derp_output_cb(const uint8_t *peer_public_key,
  * on that thread. */
 static struct udp_pcb *s_wg_output_pcb = NULL;
 
+typedef struct {
+    const uint8_t *data;
+    size_t len;
+    uint32_t dest_ip;      /* network byte order */
+    uint16_t dest_port;
+    err_t err;
+} wg_udp_send_args_t;
+
+/* Runs on tcpip_thread: see ml_tcpip_run() */
+static void wg_udp_send_on_tcpip(void *arg) {
+    wg_udp_send_args_t *a = (wg_udp_send_args_t *)arg;
+    struct pbuf *p = pbuf_alloc(PBUF_TRANSPORT, a->len, PBUF_RAM);
+    if (!p) {
+        a->err = ERR_MEM;
+        return;
+    }
+    memcpy(p->payload, a->data, a->len);
+
+    ip_addr_t dst;
+    IP_SET_TYPE_VAL(dst, IPADDR_TYPE_V4);
+    ip4_addr_set_u32(ip_2_ip4(&dst), a->dest_ip);  /* already network byte order */
+
+    a->err = udp_sendto(s_wg_output_pcb, p, &dst, a->dest_port);
+    pbuf_free(p);
+}
+
 static err_t wg_udp_output_cb(uint32_t dest_ip, uint16_t dest_port,
                                 const uint8_t *data, size_t len, void *ctx) {
     microlink_t *ml = (microlink_t *)ctx;
@@ -195,20 +221,44 @@ static err_t wg_udp_output_cb(uint32_t dest_ip, uint16_t dest_port,
              (int)dest_port,
              len >= 1 ? data[0] : -1);
 
-    /* Use raw PCB to send — safe from any thread context */
     if (!s_wg_output_pcb) return ERR_CONN;
 
-    struct pbuf *p = pbuf_alloc(PBUF_TRANSPORT, len, PBUF_RAM);
-    if (!p) return ERR_MEM;
-    memcpy(p->payload, data, len);
+    /* Raw PCB send. Data packets arrive here on tcpip_thread (netif output);
+     * handshakes and keepalives come from the wg_mgr task, so marshal. */
+    wg_udp_send_args_t a = {
+        .data = data, .len = len, .dest_ip = dest_ip, .dest_port = dest_port, .err = ERR_OK,
+    };
+    ml_tcpip_run(wg_udp_send_on_tcpip, &a);
+    return a.err;
+}
 
-    ip_addr_t dst;
-    IP_SET_TYPE_VAL(dst, IPADDR_TYPE_V4);
-    ip4_addr_set_u32(ip_2_ip4(&dst), dest_ip);  /* already network byte order */
+/* Runs on tcpip_thread: see ml_tcpip_run() */
+static void wg_netif_attach_on_tcpip(void *arg) {
+    struct netif *netif = (struct netif *)arg;
 
-    err_t err = udp_sendto(s_wg_output_pcb, p, &dst, dest_port);
-    pbuf_free(p);
-    return err;
+    /* Add to lwIP netif list (bypass netif_add which wants init callback) */
+    netif->next = netif_list;
+    netif_list = netif;
+
+    /* Bring interface up */
+    netif_set_up(netif);
+    netif_set_link_up(netif);
+
+    /* Create raw UDP PCB for WG output (avoids BSD sendto deadlock on TCPIP
+     * thread).  Bind to port 51820 to match the DISCO socket source port.
+     * The existing BSD disco_sock4 is only used from the wg_mgr task for
+     * DISCO/STUN; this raw PCB is used from the TCPIP thread for WG output. */
+    if (!s_wg_output_pcb) {
+        s_wg_output_pcb = udp_new();
+        if (s_wg_output_pcb) {
+            /* Set source port to 51820 (matching DISCO socket) WITHOUT calling
+             * udp_bind — avoids registering for input which would steal WG
+             * responses from the DISCO BSD socket. udp_sendto uses local_port. */
+            s_wg_output_pcb->local_port = 51820;
+            /* DSCP 46 (EF) → WMM AC_VO for low-latency WiFi scheduling */
+            s_wg_output_pcb->tos = 0xB8;
+        }
+    }
 }
 
 /* ============================================================================
@@ -265,29 +315,9 @@ static esp_err_t wg_init_interface(microlink_t *ml) {
      * callback uses raw udp_sendto (not BSD sendto) to avoid deadlock. */
     netif->input = tcpip_input;
 
-    /* Add to lwIP netif list (bypass netif_add which wants init callback) */
-    netif->next = netif_list;
-    netif_list = netif;
-
-    /* Bring interface up */
-    netif_set_up(netif);
-    netif_set_link_up(netif);
-
-    /* Create raw UDP PCB for WG output (avoids BSD sendto deadlock on TCPIP
-     * thread).  Bind to port 51820 to match the DISCO socket source port.
-     * The existing BSD disco_sock4 is only used from the wg_mgr task for
-     * DISCO/STUN; this raw PCB is used from the TCPIP thread for WG output. */
-    if (!s_wg_output_pcb) {
-        s_wg_output_pcb = udp_new();
-        if (s_wg_output_pcb) {
-            /* Set source port to 51820 (matching DISCO socket) WITHOUT calling
-             * udp_bind — avoids registering for input which would steal WG
-             * responses from the DISCO BSD socket. udp_sendto uses local_port. */
-            s_wg_output_pcb->local_port = 51820;
-            /* DSCP 46 (EF) → WMM AC_VO for low-latency WiFi scheduling */
-            s_wg_output_pcb->tos = 0xB8;
-        }
-    }
+    /* Add to the netif list, bring it up and create the output PCB on
+     * tcpip_thread (lwIP's raw API is not safe from this task) */
+    ml_tcpip_run(wg_netif_attach_on_tcpip, netif);
 
     /* Register output callbacks for magicsock mode */
     wireguardif_set_derp_output(netif, wg_derp_output_cb, ml);
