@@ -70,6 +70,12 @@ extern "C" {
 #define ML_TASK_WG_MGR_PRIO     7
 #define ML_TASK_WG_MGR_CORE     ML_TASK_APP_CORE
 
+/* UDP socket RX task (runs the app's receive callback). Above MicroLink's
+ * own tasks so callbacks stay prompt, but below ESP-IDF's system tasks
+ * (tcpip 18, event loop 20, WiFi/BT controller 23 = configMAX_PRIORITIES - 2,
+ * which this used to share). */
+#define ML_TASK_UDP_RX_PRIO     12
+
 /* Short polling delay that never rounds down to 0 ticks. pdMS_TO_TICKS()
  * truncates, so at CONFIG_FREERTOS_HZ=100 (the ESP-IDF default) a 1-9 ms
  * delay becomes vTaskDelay(0), which turns a polling loop into a busy spin
