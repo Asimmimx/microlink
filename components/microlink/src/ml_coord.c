@@ -1083,6 +1083,10 @@ static void parse_peers_from_map_response(microlink_t *ml, cJSON *root) {
 
         update->action = ML_PEER_ADD;
 
+        /* Node.Online: the control plane's view of whether the peer is up */
+        cJSON *online = cJSON_GetObjectItem(peer, "Online");
+        update->online = cJSON_IsBool(online) ? (cJSON_IsTrue(online) ? 1 : 0) : -1;
+
         /* Hostname */
         cJSON *name = cJSON_GetObjectItem(peer, "Name");
         if (name && name->valuestring) {
@@ -1162,8 +1166,9 @@ static void parse_peers_from_map_response(microlink_t *ml, cJSON *root) {
 
         char ip_str[16];
         microlink_ip_to_str(update->vpn_ip, ip_str);
-        ESP_LOGI(TAG, "  Peer: %s (%s) derp=%d eps=%d",
-                 update->hostname, ip_str, update->derp_region, update->endpoint_count);
+        ESP_LOGI(TAG, "  Peer: %s (%s) derp=%d eps=%d online=%s",
+                 update->hostname, ip_str, update->derp_region, update->endpoint_count,
+                 update->online == 1 ? "yes" : update->online == 0 ? "no" : "?");
 
         /* Send to wg_mgr task via queue */
         if (xQueueSend(ml->peer_update_queue, &update, pdMS_TO_TICKS(100)) != pdTRUE) {
@@ -1213,6 +1218,10 @@ check_removed:
                 ml_peer_update_t *update = ml_psram_calloc(1, sizeof(ml_peer_update_t));
                 if (update) {
                     update->action = ML_PEER_UPDATE_ENDPOINT;
+
+                    cJSON *patch_online = cJSON_GetObjectItem(patch, "Online");
+                    update->online = cJSON_IsBool(patch_online) ?
+                                     (cJSON_IsTrue(patch_online) ? 1 : 0) : -1;
 
                     const char *hex = patch->string;
                     if (strncmp(hex, "nodekey:", 8) == 0) hex += 8;

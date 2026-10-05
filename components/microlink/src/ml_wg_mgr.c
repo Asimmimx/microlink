@@ -423,6 +423,7 @@ static int add_peer(microlink_t *ml, const ml_peer_update_t *update) {
 
     /* Check if peer already exists */
     int idx = find_peer_by_key(ml, update->public_key);
+    bool is_new = idx < 0;
     if (idx >= 0) {
         ESP_LOGI(TAG, "Updating existing peer %s (idx=%d)", update->hostname, idx);
     } else {
@@ -483,6 +484,11 @@ static int add_peer(microlink_t *ml, const ml_peer_update_t *update) {
     p->hostname[sizeof(p->hostname) - 1] = '\0';
     p->derp_region = update->derp_region;
     p->active = true;
+    if (update->online >= 0) {
+        p->online = update->online == 1;
+    } else if (is_new) {
+        p->online = false;          /* unknown until the control plane says */
+    }
 
     /* Copy endpoints */
     p->endpoint_count = update->endpoint_count;
@@ -617,7 +623,7 @@ static int add_peer(microlink_t *ml, const ml_peer_update_t *update) {
     if (ml->peer_cb) {
         microlink_peer_info_t info = {
             .vpn_ip = p->vpn_ip,
-            .online = true,
+            .online = p->online,
             .direct_path = false,
         };
         strncpy(info.hostname, p->hostname, sizeof(info.hostname) - 1);
@@ -677,6 +683,9 @@ static void process_peer_updates(microlink_t *ml) {
                     }
                     if (update->derp_region > 0) {
                         p->derp_region = update->derp_region;
+                    }
+                    if (update->online >= 0) {
+                        p->online = update->online == 1;
                     }
                     ESP_LOGI(TAG, "Peer patched: %s (eps=%d derp=%d)",
                              p->hostname, p->endpoint_count, p->derp_region);

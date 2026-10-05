@@ -246,6 +246,7 @@ typedef struct {
     uint8_t disco_key[32];
     char hostname[64];
     uint16_t derp_region;
+    int8_t online;          /* Node.Online: 1 online, 0 offline, -1 not sent */
     /* Endpoints */
     struct {
         uint32_t ip;
@@ -265,7 +266,8 @@ typedef struct {
     uint8_t public_key[32];
     uint8_t disco_key[32];
     char hostname[64];
-    bool active;
+    bool active;            /* holds a slot in our peer/WireGuard table */
+    bool online;            /* reachable per the control plane (Node.Online) */
 
     /* Endpoints */
     struct {

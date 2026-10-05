@@ -353,8 +353,9 @@ void app_main(void) {
                     if (microlink_get_peer_info(ml, i, &info) == ESP_OK) {
                         char ip_str[16];
                         microlink_ip_to_str(info.vpn_ip, ip_str);
-                        ESP_LOGI(TAG, "  [%d] %s (%s) %s",
+                        ESP_LOGI(TAG, "  [%d] %s (%s) %s %s",
                                  i, info.hostname, ip_str,
+                                 info.online ? "online" : "offline",
                                  info.direct_path ? "DIRECT" : "DERP");
                     }
                 }
