@@ -1,5 +1,34 @@
 # Changelog
 
+## v2.3.1 (2026-10-09)
+
+A RAM re-measurement for the ESP32-C2 entry of the compatibility chart. It found two low-RAM problems, fixed here, and a wrong number in v2.2.0.
+
+### How much RAM MicroLink needs
+
+Measured on the ESP32-C3 by holding RAM from boot to mimic a smaller chip, with a test build that forces a control reconnect 60 s in (as when the server closes the connection):
+
+| Free after WiFi connects | Joins | Re-joins after a reconnect |
+|---|---|---|
+| 226 KB (C3 as is) | Yes | Yes |
+| 185 KB | Yes | Yes (lowest free 25 KB) |
+| 164 KB | Yes | No: the peer list no longer fits in one block |
+| 156 KB | Yes | No |
+| 143 KB | Joins, then loses the control connection (v2.2.0 too) | No |
+
+So a board needs about **185 KB free after WiFi** to stay on the tailnet over time. The ESP32-C2 has about 95 KB by default and about 169 KB with Espressif's deepest RAM tuning, so it stays "Low RAM". The v2.2.0 note "still joins with only 185 KB free at boot" (about 143 KB after WiFi) was wrong: it joined, but lost the control connection right after.
+
+### Fixes
+
+| Problem | Before | After |
+|---|---|---|
+| Re-registering with little RAM | The RegisterResponse (~600 bytes) was read into 16 KB + 8 KB buffers; with ~143 KB after WiFi every re-registration failed | 6 KB + 4 KB; re-registration passes at that level |
+| Long-poll message when RAM is tight | The 22 KB full netmap sent first on each long-poll was taken even with little RAM left | Skipped when it would leave less than 48 KB (keepalives and small updates are always taken). Normal boards still parse it |
+| Running out of memory reading a control message | No log, and `errno` could still hold an old EAGAIN, so the half-read stream was treated as "no data" | Logged with the frame size and free heap, and the connection is reopened |
+| Build warnings | 9 (unused functions and variables) | 0 |
+
+`Out of memory for MapResponse` now also shows the free heap and the largest free block.
+
 ## v2.3.0 (2026-10-09)
 
 Checked on an ESP32-C3 without PSRAM (ESP-IDF v5.3.2) on a 6-device tailnet, with a Windows peer and an Android peer on the same LAN.
@@ -41,7 +70,7 @@ Every fix below was checked on real hardware (ESP32-C3 without PSRAM, ESP-IDF v5
 | Single-core chips (C3, C6) | Reboot loop on start (task pinned to Core 1) | Connects normally |
 | Boards without PSRAM | `MapRequest failed` forever (out of memory) | Peer list loads |
 | Crash when a packet arrived while a socket was opening ([#17](https://github.com/CamM2325/microlink/issues/17)) | Load access fault in `udp_input`, reboot | lwIP is only touched from its own thread. Checked with `CONFIG_LWIP_CHECK_THREAD_SAFETY` |
-| Peak RAM while joining a tailnet | Free RAM dipped to 9.7 KB on a C3 | Lowest point 84–93 KB; still joins with only 185 KB free at boot |
+| Peak RAM while joining a tailnet | Free RAM dipped to 9.7 KB on a C3 | Lowest point 84–93 KB; still joins with only 185 KB free at boot (corrected in v2.3.1: at that level the control connection is lost right after joining) |
 | Long-poll allocated 64 KB per message | Control connection lost when RAM was tight | Stays connected |
 | FreeRTOS at 100 Hz, the ESP-IDF default ([#36](https://github.com/CamM2325/microlink/issues/36)) | Watchdog every 5 s; app task never ran | No watchdog trips |
 | Packet loss under load (as in PRs [#30](https://github.com/CamM2325/microlink/pull/30), [#32](https://github.com/CamM2325/microlink/pull/32), [#38](https://github.com/CamM2325/microlink/pull/38)) | Per-packet INFO logs throttled the tunnel: 50 msg/s gave 71% loss and 784 ms | 100 msg/s: 0% loss, 19 ms |

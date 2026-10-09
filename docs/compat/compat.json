@@ -27,7 +27,7 @@
  {
   "chip": "ESP32-C2",
   "status": "tight",
-  "note": "~95 KB free after WiFi; needs ~120-140 KB"
+  "note": "~95 KB after WiFi (169 tuned); needs ~185 KB"
  },
  {
   "chip": "ESP32-C5 / C61",

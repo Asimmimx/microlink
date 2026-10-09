@@ -74,7 +74,7 @@ Then check that the chip is supported:
 | ESP32-C3 | Supported, tested on hardware. Continue |
 | ESP32-S3, ESP32, ESP32-C6 | Should work. Continue, and tell the user it hasn't been hardware-tested with this fork |
 | ESP32-S2 | Continue only if the board has PSRAM (log line `Found ... PSRAM`). Otherwise RAM is too tight |
-| ESP32-C2 | Warn that 272 KB RAM is very likely too small. Continue only if the user wants to try |
+| ESP32-C2 | Warn that it is very likely too small: MicroLink needs ~185 KB free after WiFi, a C2 has ~95 KB (~169 KB with deep tuning). Continue only if the user wants to try |
 | ESP32-C5, ESP32-C61 | Need ESP-IDF 5.5+. Not tested yet |
 | ESP32-H2, ESP32-P4 | **Stop.** No built-in WiFi. Tell the user they need a different board |
 

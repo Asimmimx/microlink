@@ -21,7 +21,7 @@ Put an ESP32 on your [Tailscale](https://tailscale.com) network. Once it's on yo
 | ESP32 | 🟡 Should work | Tested by the original author (no PSRAM) |
 | ESP32-C6 | 🟡 Should work | Builds. Single core like the C3, with more RAM |
 | ESP32-S2 | 🟠 Low RAM | Builds. RAM use not measured on an S2 yet; use a board with PSRAM (most S2 boards have it) |
-| ESP32-C2 | 🟠 Low RAM | Builds. MicroLink needs about 120–140 KB free after WiFi connects; a C2 has about 95 KB by default ([Espressif](https://developer.espressif.com/blog/2025/11/esp32c2-ram-optimization/)) |
+| ESP32-C2 | 🟠 Low RAM | Builds. MicroLink needs about 185 KB free after WiFi connects to keep reconnecting reliably (about 156 KB just to join once). A C2 has about 95 KB by default, and about 169 KB with Espressif's deepest RAM tuning on ESP-IDF 5.5 ([Espressif](https://developer.espressif.com/blog/2025/11/esp32c2-ram-optimization/)), so it is still short |
 | ESP32-C5 / C61 | ❔ Unknown | WiFi support needs ESP-IDF 5.5+. Not built yet |
 | ESP32-H2 | ❌ No | No WiFi (Thread/Zigbee/BLE only) |
 | ESP32-P4 | ❌ No | No built-in WiFi |
@@ -151,7 +151,7 @@ echo "hello" | nc -u 100.x.y.z 9000      # the example echoes it back
 
 ## What this fork fixes
 
-Compared with upstream v2.1.0 (latest release: [v2.3.0](https://github.com/Asimmimx/microlink/releases/tag/v2.3.0)). Every item was checked on real hardware; the numbers are from an ESP32-C3 without PSRAM:
+Compared with upstream v2.1.0 (latest release: [v2.3.1](https://github.com/Asimmimx/microlink/releases/tag/v2.3.1)). Every item was checked on real hardware; the numbers are from an ESP32-C3 without PSRAM:
 
 - **Runs on ESP32-C3/C6 and boards without PSRAM.** Upstream reboot-looped on single-core chips and ran out of memory without PSRAM.
 - **No more crash** when a packet arrives while a socket is opening ([#17](https://github.com/CamM2325/microlink/issues/17)).
