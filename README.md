@@ -158,6 +158,7 @@ Compared with upstream v2.1.0. Every item was checked on real hardware; the numb
 - **Much less RAM to join a tailnet.** The lowest point was 9.7 KB free; now it's 84–93 KB.
 - **No packet loss under load.** 50 msg/s used to lose 71% of packets with 784 ms latency; 100 msg/s now loses none, at 19 ms.
 - **Closest DERP relay instead of Dallas** ([#19](https://github.com/CamM2325/microlink/issues/19)). From Turkey, relay latency dropped from 168 ms to about 60 ms.
+- **No more "offline" in the admin console while the device thinks it's connected.** A dead control connection is now noticed (GOAWAY, RST_STREAM, no keepalive for 120 s) and re-opened ([#40](https://github.com/CamM2325/microlink/pull/40)).
 - **DERP keeps reconnecting and no longer leaks memory** ([#37](https://github.com/CamM2325/microlink/pull/37)).
 - **Correct peer online status** ([#24](https://github.com/CamM2325/microlink/pull/24)), plus fixes for [#34](https://github.com/CamM2325/microlink/issues/34), [#36](https://github.com/CamM2325/microlink/issues/36) and [#39](https://github.com/CamM2325/microlink/pull/39).
 - **Easier setup:** one component folder, Windows builds, any chip, and a credentials file that actually gets read.

@@ -1,5 +1,14 @@
 # Changelog
 
+## Unreleased
+
+### Fixes
+
+| Problem | Before | After |
+|---|---|---|
+| Device sometimes shown offline in the admin console while its log said `CONNECTED` | The control watchdog was reset by our own 5 s HTTP/2 PINGs, which keep succeeding on a dead long-poll, so it never fired. Server GOAWAY, RST_STREAM and END_STREAM on the long-poll, and a closed socket (`recv()` = 0 read as "no data"), went unnoticed | Watchdog only counts data on the long-poll stream (the server sends a keepalive about once a minute). GOAWAY, RST_STREAM, END_STREAM and a closed socket reconnect at once. Checked by making a test build ignore the long-poll: it reconnected after 120 s and stayed online |
+| Long-poll updates larger than one Noise message (~4 KB) | Split HTTP/2 frames were dropped, and their remaining bytes were read as frame headers. The full netmap sent at the start of every long-poll was never parsed | HTTP/2 frames and MapResponses are reassembled across Noise messages. The long-poll copy of the DERPMap is skipped (it is loaded on every connect), so the lowest free heap after joining stays about 62 KB on a C3 |
+
 ## v2.2.0: maintained fork (2026-10-05)
 
 First release of [Asimmimx/microlink](https://github.com/Asimmimx/microlink), a maintained fork of [CamM2325/microlink](https://github.com/CamM2325/microlink) v2.1.0.
@@ -42,4 +51,4 @@ Every fix below was checked on real hardware (ESP32-C3 without PSRAM, ESP-IDF v5
 
 - Unvalidated endpoints for peers behind CGNAT ([#18](https://github.com/CamM2325/microlink/issues/18)) and stale endpoints for peers reached through DERP ([#41](https://github.com/CamM2325/microlink/issues/41)). Testing these needs a phone on mobile data.
 - Registration errors are silent ([#23](https://github.com/CamM2325/microlink/pull/23)).
-- RST_STREAM/GOAWAY on the long-poll are not handled ([#40](https://github.com/CamM2325/microlink/pull/40)).
+- RST_STREAM/GOAWAY on the long-poll are not handled ([#40](https://github.com/CamM2325/microlink/pull/40)). Fixed after v2.2.0 (see Unreleased).
