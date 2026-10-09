@@ -176,68 +176,6 @@ static void hsalsa20(uint8_t *out, const uint8_t *nonce, const uint8_t *key) {
     store32_le(out + 28, x[9]);
 }
 
-/* XSalsa20 stream cipher - uses HSalsa20 for subkey derivation */
-static void xsalsa20(uint8_t *out, const uint8_t *in, size_t len,
-                     const uint8_t *nonce, const uint8_t *key) {
-    uint8_t subkey[32];
-    uint8_t block[64];
-    uint8_t state[64];
-    size_t i;
-    uint64_t ctr = 0;
-
-    /* Derive subkey using first 16 bytes of nonce */
-    hsalsa20(subkey, nonce, key);
-
-    /* sigma = "expand 32-byte k" */
-    static const uint8_t sigma[16] = "expand 32-byte k";
-
-    /* Set up state for Salsa20 with remaining 8 bytes of nonce
-     * Salsa20 state layout (16 x 32-bit words):
-     *   [0]  = sigma[0:4]    [1]  = key[0:4]     [2]  = key[4:8]     [3]  = key[8:12]
-     *   [4]  = key[12:16]    [5]  = sigma[4:8]   [6]  = nonce[0:4]   [7]  = nonce[4:8]
-     *   [8]  = counter_lo    [9]  = counter_hi   [10] = sigma[8:12]  [11] = key[16:20]
-     *   [12] = key[20:24]    [13] = key[24:28]   [14] = key[28:32]   [15] = sigma[12:16]
-     */
-    memcpy(state + 0, sigma, 4);           /* word 0: sigma[0:4] */
-    memcpy(state + 4, subkey, 4);          /* word 1: key[0:4] */
-    memcpy(state + 8, subkey + 4, 4);      /* word 2: key[4:8] */
-    memcpy(state + 12, subkey + 8, 4);     /* word 3: key[8:12] */
-    memcpy(state + 16, subkey + 12, 4);    /* word 4: key[12:16] */
-    memcpy(state + 20, sigma + 4, 4);      /* word 5: sigma[4:8] */
-    memcpy(state + 24, nonce + 16, 4);     /* word 6: nonce[16:20] */
-    memcpy(state + 28, nonce + 20, 4);     /* word 7: nonce[20:24] */
-    memset(state + 32, 0, 8);              /* words 8-9: counter = 0 */
-    memcpy(state + 40, sigma + 8, 4);      /* word 10: sigma[8:12] */
-    memcpy(state + 44, subkey + 16, 4);    /* word 11: key[16:20] */
-    memcpy(state + 48, subkey + 20, 4);    /* word 12: key[20:24] */
-    memcpy(state + 52, subkey + 24, 4);    /* word 13: key[24:28] */
-    memcpy(state + 56, subkey + 28, 4);    /* word 14: key[28:32] */
-    memcpy(state + 60, sigma + 12, 4);     /* word 15: sigma[12:16] */
-
-    while (len > 0) {
-        /* Set counter in state */
-        store32_le(state + 32, (uint32_t)ctr);
-        store32_le(state + 36, (uint32_t)(ctr >> 32));
-
-        salsa20_core(block, state);
-
-        size_t chunk = (len < 64) ? len : 64;
-        for (i = 0; i < chunk; i++) {
-            out[i] = in[i] ^ block[i];
-        }
-
-        len -= chunk;
-        in += chunk;
-        out += chunk;
-        ctr++;
-    }
-
-    /* Clear sensitive data */
-    memset(subkey, 0, sizeof(subkey));
-    memset(block, 0, sizeof(block));
-    memset(state, 0, sizeof(state));
-}
-
 /* ============================================================================
  * Poly1305 MAC (radix 2^26 implementation)
  * ========================================================================== */
