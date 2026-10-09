@@ -1,4 +1,4 @@
-version: "2.2.0"
+version: "2.3.0"
 description: "Tailscale client for ESP32: WireGuard, DERP relay, DISCO, MagicDNS"
 url: "https://github.com/Asimmimx/microlink"
 dependencies:

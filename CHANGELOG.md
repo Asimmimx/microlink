@@ -1,13 +1,32 @@
 # Changelog
 
-## Unreleased
+## v2.3.0 (2026-10-09)
+
+Checked on an ESP32-C3 without PSRAM (ESP-IDF v5.3.2) on a 6-device tailnet, with a Windows peer and an Android peer on the same LAN.
 
 ### Fixes
 
 | Problem | Before | After |
 |---|---|---|
-| Device sometimes shown offline in the admin console while its log said `CONNECTED` | The control watchdog was reset by our own 5 s HTTP/2 PINGs, which keep succeeding on a dead long-poll, so it never fired. Server GOAWAY, RST_STREAM and END_STREAM on the long-poll, and a closed socket (`recv()` = 0 read as "no data"), went unnoticed | Watchdog only counts data on the long-poll stream (the server sends a keepalive about once a minute). GOAWAY, RST_STREAM, END_STREAM and a closed socket reconnect at once. Checked by making a test build ignore the long-poll: it reconnected after 120 s and stayed online |
-| Long-poll updates larger than one Noise message (~4 KB) | Split HTTP/2 frames were dropped, and their remaining bytes were read as frame headers. The full netmap sent at the start of every long-poll was never parsed | HTTP/2 frames and MapResponses are reassembled across Noise messages. The long-poll copy of the DERPMap is skipped (it is loaded on every connect), so the lowest free heap after joining stays about 62 KB on a C3 |
+| Device sometimes shown offline in the admin console while its log said `CONNECTED` ([#40](https://github.com/CamM2325/microlink/pull/40)) | The control watchdog was reset by our own 5 s HTTP/2 PINGs, which keep succeeding on a dead long-poll, so it never fired. Server GOAWAY, RST_STREAM and END_STREAM on the long-poll, and a closed socket (`recv()` = 0 read as "no data"), went unnoticed | Watchdog only counts data on the long-poll stream (the server sends a keepalive about once a minute). GOAWAY, RST_STREAM, END_STREAM and a closed socket reconnect at once. A test build that ignored the long-poll reconnected 120 s later, in 7 s, and was never shown offline |
+| Long-poll updates larger than one Noise message (~4 KB) | Split HTTP/2 frames were dropped, and their remaining bytes were read as frame headers. The full netmap sent at the start of every long-poll was never parsed | HTTP/2 frames and MapResponses are reassembled across Noise messages. The long-poll copy of the DERPMap is skipped (it is loaded on every connect), so the lowest free heap after joining stays 62–66 KB |
+| Registration errors were silent ([#23](https://github.com/CamM2325/microlink/pull/23)) | A rejected or used-up auth key only showed as `MapRequest failed, will retry` forever | The server's reason is logged: `Registration rejected by the control server: ...`, `Registration needs a login: ...` (invalid, expired or already-used key), or a warning when the device waits for approval. Not reproduced on hardware: it would need the device's identity erased |
+| Direct path flipping between a peer's LAN and public address | A peer on the same LAN answers on both (the router hairpins the public one). Whichever PONG came first won, so the path flipped every ~2 min and each flip forced a new WireGuard handshake: 14 flips in 8 min | A trusted direct path is kept; it is left only for a LAN path or once it stops answering. 0 flips in 10 min, settled on the LAN path |
+| `DISCO PONG unmatched` warnings | One ping goes out on several paths with the same txid, and the peer answers each. Only the first PONG matched; the rest were logged as warnings, dozens per minute | Extra PONGs are recognised as duplicates (DEBUG). A direct PONG that arrives after a DERP one now still sets up the direct path. 0 warnings in 10 min |
+| Endpoint update every 23 s | Each STUN re-probe sent a new MapRequest to the control server, even when nothing had changed | Sent only after a change, or every 10 minutes: 2 in 10 min |
+
+### Behaviour changes to know about
+
+- **Logs**: `STUN probe sent`, `STUN mapped`, `MapRequest includes N endpoint(s)` and repeated `WG endpoint stored (no session)` lines are now DEBUG.
+- `ml_coord` logs `Control plane watchdog timeout: no long-poll data for 120s` when it reconnects for that reason. `ctrl_watchdog_ms` keeps its default of 120000; don't set it below about 70000, since the server's keepalive comes about once a minute.
+
+### Still open
+
+- Unvalidated endpoints for peers behind CGNAT ([#18](https://github.com/CamM2325/microlink/issues/18)) and stale endpoints for peers reached through DERP ([#41](https://github.com/CamM2325/microlink/issues/41)). Testing these needs a phone on mobile data.
+
+### Removed
+
+- The Cortex-M0 assembly X25519 and the sample platform file in `wireguard_lwip`. They were never built and can't run on an ESP32.
 
 ## v2.2.0: maintained fork (2026-10-05)
 
@@ -50,5 +69,5 @@ Every fix below was checked on real hardware (ESP32-C3 without PSRAM, ESP-IDF v5
 ### Still open
 
 - Unvalidated endpoints for peers behind CGNAT ([#18](https://github.com/CamM2325/microlink/issues/18)) and stale endpoints for peers reached through DERP ([#41](https://github.com/CamM2325/microlink/issues/41)). Testing these needs a phone on mobile data.
-- Registration errors are silent ([#23](https://github.com/CamM2325/microlink/pull/23)).
-- RST_STREAM/GOAWAY on the long-poll are not handled ([#40](https://github.com/CamM2325/microlink/pull/40)). Fixed after v2.2.0 (see Unreleased).
+- Registration errors are silent ([#23](https://github.com/CamM2325/microlink/pull/23)). Fixed in v2.3.0.
+- RST_STREAM/GOAWAY on the long-poll are not handled ([#40](https://github.com/CamM2325/microlink/pull/40)). Fixed in v2.3.0.

@@ -151,7 +151,7 @@ echo "hello" | nc -u 100.x.y.z 9000      # the example echoes it back
 
 ## What this fork fixes
 
-Compared with upstream v2.1.0. Every item was checked on real hardware; the numbers are from an ESP32-C3 without PSRAM:
+Compared with upstream v2.1.0 (latest release: [v2.3.0](https://github.com/Asimmimx/microlink/releases/tag/v2.3.0)). Every item was checked on real hardware; the numbers are from an ESP32-C3 without PSRAM:
 
 - **Runs on ESP32-C3/C6 and boards without PSRAM.** Upstream reboot-looped on single-core chips and ran out of memory without PSRAM.
 - **No more crash** when a packet arrives while a socket is opening ([#17](https://github.com/CamM2325/microlink/issues/17)).
@@ -159,6 +159,9 @@ Compared with upstream v2.1.0. Every item was checked on real hardware; the numb
 - **No packet loss under load.** 50 msg/s used to lose 71% of packets with 784 ms latency; 100 msg/s now loses none, at 19 ms.
 - **Closest DERP relay instead of Dallas** ([#19](https://github.com/CamM2325/microlink/issues/19)). From Turkey, relay latency dropped from 168 ms to about 60 ms.
 - **No more "offline" in the admin console while the device thinks it's connected.** A dead control connection is now noticed (GOAWAY, RST_STREAM, no keepalive for 120 s) and re-opened ([#40](https://github.com/CamM2325/microlink/pull/40)).
+- **Stable direct path on your LAN.** It used to flip between a peer's LAN and public address every couple of minutes, re-handshaking each time.
+- **Registration errors are logged** with the server's reason instead of an endless `MapRequest failed` ([#23](https://github.com/CamM2325/microlink/pull/23)). The rejection itself wasn't reproduced on hardware.
+- **Quieter background traffic:** no flood of `DISCO PONG unmatched` warnings, and endpoints go to the control server only when they change.
 - **DERP keeps reconnecting and no longer leaks memory** ([#37](https://github.com/CamM2325/microlink/pull/37)).
 - **Correct peer online status** ([#24](https://github.com/CamM2325/microlink/pull/24)), plus fixes for [#34](https://github.com/CamM2325/microlink/issues/34), [#36](https://github.com/CamM2325/microlink/issues/36) and [#39](https://github.com/CamM2325/microlink/pull/39).
 - **Easier setup:** one component folder, Windows builds, any chip, and a credentials file that actually gets read.
@@ -171,7 +174,7 @@ Full list with before/after measurements, behaviour changes and what's still ope
 
 | Symptom | Fix |
 |---|---|
-| Device never shows up in Tailscale | The auth key is wrong or already used. Make a new one, and erase the old identity with `idf.py -p PORT erase-flash` |
+| Device never shows up in Tailscale | The log says why (`Registration needs a login` / `rejected`). Usually the auth key is wrong or already used. Make a new one, and erase the old identity with `idf.py -p PORT erase-flash` |
 | Changed `sdkconfig.credentials` but nothing changed | Delete the `sdkconfig` file and build again. Settings are only copied in on the first build |
 | First message right after boot gets no reply | Normal. The first tunnel takes about 15 s to set up |
 | `Failed to resolve component 'wireguard_lwip'` | You're on the old upstream repo. Use this fork |

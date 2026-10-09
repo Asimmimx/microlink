@@ -149,11 +149,12 @@ Finally, tell the user to open <https://login.tailscale.com/admin/machines>, fin
 
 | Log shows | Cause | Fix |
 |---|---|---|
+| `Device is waiting for approval` | Device approval is on for the tailnet and the key was not pre-approved | Approve it at <https://login.tailscale.com/admin/machines>, or use a pre-approved key next time |
 | `DERP connect attempt N failed, retrying in ...` repeating | Outbound HTTPS (443) to Tailscale's relays is blocked or the internet is down | Check the network; it keeps retrying by itself (2 s up to 60 s) |
 | `WiFi disconnected, reason=201` repeating | WiFi name not found | Check the SSID, and that the network is 2.4 GHz |
 | `reason=15` or `reason=204` repeating | Wrong WiFi password | Fix the password, delete `sdkconfig`, rebuild |
 | `reason=2` / `205` once, then `WiFi connected` | Normal first-attempt retry | Nothing to do |
-| `Registering...` then `MapRequest failed, will retry` forever | Auth key invalid or already used | Get a new key, put it in `sdkconfig.credentials`, delete `sdkconfig`, rebuild. If the device joined before with another key, the user may need `erase-flash` (ask first) |
+| `Registration needs a login` or `Registration rejected by the control server`, or `Registering...` then `MapRequest failed, will retry` forever | Auth key invalid, expired or already used | Get a new key, put it in `sdkconfig.credentials`, delete `sdkconfig`, rebuild. If the device joined before with another key, the user may need `erase-flash` (ask first) |
 | `Out of memory for MapResponse` or `Incomplete MapResponse` | Not enough RAM (big tailnet or small chip) | Use a board with PSRAM, or raise `CONFIG_ML_H2_BUFFER_SIZE_KB` if PSRAM is present |
 | `Failed to resolve component 'wireguard_lwip'` | Old upstream checkout | Use this repository (step 4) |
 | `idf.py: command not found` | ESP-IDF not activated in this shell | Step 1 |
