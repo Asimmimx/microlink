@@ -44,6 +44,10 @@ static const char *TAG = "ml_coord";
 static uint8_t s_node_key_challenge[32] = {0};
 static bool s_has_node_key_challenge = false;
 
+/* RegisterResponse buffers (the response is typically ~600 bytes) */
+#define ML_REG_H2_BUF_SIZE    6144
+#define ML_REG_JSON_BUF_SIZE  4096
+
 /* Coordination state machine */
 typedef enum {
     COORD_IDLE,
@@ -210,12 +214,21 @@ static int noise_recv_impl(microlink_t *ml, ml_noise_state_t *noise,
     }
 
     uint8_t *ciphertext = ml_psram_malloc(ct_len);
-    if (!ciphertext) return -1;
+    if (!ciphertext) {
+        /* The frame header is already consumed: the connection is lost */
+        ESP_LOGE(TAG, "noise_recv: out of memory for a %d-byte frame (free %lu)",
+                 ct_len, (unsigned long)heap_caps_get_free_size(MALLOC_CAP_8BIT));
+        errno = ENOMEM;
+        return -1;
+    }
 
     if (!plaintext) {
         plaintext = ml_psram_malloc(pt_len + 1);
         if (!plaintext) {
+            ESP_LOGE(TAG, "noise_recv: out of memory for a %d-byte frame (free %lu)",
+                     (int)pt_len, (unsigned long)heap_caps_get_free_size(MALLOC_CAP_8BIT));
             free(ciphertext);
+            errno = ENOMEM;
             return -1;
         }
         *alloc_out = plaintext;
@@ -848,12 +861,14 @@ static int do_register(microlink_t *ml, ml_noise_state_t *noise) {
              h2_pos, (t_reg_sent - t_reg_start) / 1000);
 
     /* Read RegisterResponse - accumulate all Noise frames into H2 buffer first,
-     * then parse H2 frames (same pattern as MapResponse). */
-    uint8_t *h2_resp = ml_psram_malloc(16384);
+     * then parse H2 frames (same pattern as MapResponse). The response is
+     * well under 1KB; these buffers used to be 16KB + 8KB, which made
+     * re-registering fail on a board with little RAM left. */
+    uint8_t *h2_resp = ml_psram_malloc(ML_REG_H2_BUF_SIZE);
     if (!h2_resp) return -1;
     size_t h2_resp_len = 0;
 
-    uint8_t *resp_buf = ml_psram_malloc(8192);
+    uint8_t *resp_buf = ml_psram_malloc(ML_REG_JSON_BUF_SIZE);
     if (!resp_buf) { free(h2_resp); return -1; }
     size_t resp_total = 0;
 
@@ -873,7 +888,7 @@ static int do_register(microlink_t *ml, ml_noise_state_t *noise) {
 
         ESP_LOGI(TAG, "RegisterResponse Noise frame %d: %d bytes", frame_count, frame_len);
 
-        if (h2_resp_len + frame_len < 16384) {
+        if (h2_resp_len + frame_len < ML_REG_H2_BUF_SIZE) {
             memcpy(h2_resp + h2_resp_len, frame_buf, frame_len);
             h2_resp_len += frame_len;
         }
@@ -919,7 +934,7 @@ static int do_register(microlink_t *ml, ml_noise_state_t *noise) {
          * Stream 0 = connection-level (SETTINGS, WINDOW_UPDATE, PING) */
         if (f_stream == 1) {
             if (f_type == 0x00 && f_len > 0) {  /* DATA frame */
-                if (resp_total + f_len < 8192) {
+                if (resp_total + f_len < ML_REG_JSON_BUF_SIZE) {
                     memcpy(resp_buf + resp_total, h2_resp + fpos, f_len);
                     resp_total += f_len;
                 }
@@ -1658,7 +1673,10 @@ static int do_fetch_peers(microlink_t *ml, ml_noise_state_t *noise) {
                     if (new_cap > ML_H2_BUFFER_SIZE + 1) new_cap = ML_H2_BUFFER_SIZE + 1;
                     uint8_t *grown = realloc(resp_buf, new_cap);
                     if (!grown) {
-                        ESP_LOGW(TAG, "Out of memory for MapResponse (%dKB)", (int)(new_cap / 1024));
+                        ESP_LOGW(TAG, "Out of memory for MapResponse (%dKB; free %luKB, largest block %luKB)",
+                                 (int)(new_cap / 1024),
+                                 (unsigned long)(heap_caps_get_free_size(MALLOC_CAP_8BIT) / 1024),
+                                 (unsigned long)(heap_caps_get_largest_free_block(MALLOC_CAP_8BIT) / 1024));
                         out_of_room = true;
                         break;
                     }
@@ -2205,6 +2223,14 @@ typedef struct {
 
 static lp_reader_t s_lp;
 
+/* Heap a long-poll message may not take: a contiguous block for the next
+ * Noise frame (ciphertext + plaintext, ~8KB) and overall room for DERP's
+ * TLS records, which MBEDTLS_DYNAMIC_BUFFER allocates per record. */
+#define ML_LP_HEAP_BLOCK_SPARE  (10 * 1024)
+#define ML_LP_HEAP_RESERVE      (48 * 1024)
+/* Keepalives and small deltas are always taken */
+#define ML_LP_SMALL_MSG         1024
+
 static void lp_reset(void) {
     free(s_lp.msg);
     memset(&s_lp, 0, sizeof(s_lp));
@@ -2315,6 +2341,22 @@ static void lp_feed_body(microlink_t *ml, const uint8_t *data, size_t len) {
         if (s_lp.msg_len + n + 1 > s_lp.msg_cap) {
             size_t new_cap = s_lp.msg_len + want + 1;
             if (new_cap < 5) new_cap = 5;
+            /* Leave room for the Noise frames still carrying the message and
+             * for DERP's TLS records: running out there drops the control
+             * connection. When RAM is that tight, skip the message instead.
+             * The large one is the full netmap sent first on every stream,
+             * which do_fetch_peers() has just loaded anyway. */
+            if (new_cap > ML_LP_SMALL_MSG &&
+                (heap_caps_get_largest_free_block(MALLOC_CAP_8BIT) < new_cap + ML_LP_HEAP_BLOCK_SPARE ||
+                 heap_caps_get_free_size(MALLOC_CAP_8BIT) < new_cap + ML_LP_HEAP_RESERVE)) {
+                ESP_LOGW(TAG, "Not enough RAM for a %d-byte long-poll MapResponse, skipping it",
+                         (int)(new_cap - 5));
+                s_lp.msg_skip = (uint32_t)(want - n);
+                s_lp.msg_len = 0;
+                data += n;
+                len -= n;
+                continue;
+            }
             uint8_t *grown = realloc(s_lp.msg, new_cap);
             if (!grown) {
                 /* Skip this message instead of losing the stream */
