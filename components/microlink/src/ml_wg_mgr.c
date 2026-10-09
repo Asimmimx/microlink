@@ -67,6 +67,12 @@ typedef struct {
     uint64_t sent_ms;
     int peer_index;
     bool active;
+    /* A ping goes out on several paths at once (best path, every endpoint,
+     * DERP), and the peer answers each copy with the same txid. The slot
+     * stays until it expires so those extra PONGs are recognised: the first
+     * one per kind (DERP / direct) counts, the rest are duplicates. */
+    bool answered;      /* any PONG seen */
+    bool got_direct;    /* a direct PONG seen */
 } disco_probe_t;
 
 #define MAX_PENDING_PROBES 32
@@ -741,6 +747,8 @@ static void disco_build_ping(microlink_t *ml, int peer_idx,
             pending_probes[i].peer_index = peer_idx;
             pending_probes[i].sent_ms = ml_get_time_ms();
             pending_probes[i].active = true;
+            pending_probes[i].answered = false;
+            pending_probes[i].got_direct = false;
             registered = true;
             ESP_LOGD(TAG, "Probe registered slot=%d peer=%s txid=%02x%02x%02x%02x",
                      i, p->hostname, txid[0], txid[1], txid[2], txid[3]);
@@ -964,14 +972,38 @@ static void process_disco_pong(microlink_t *ml, const ml_rx_packet_t *pkt,
         ml_peer_t *p = &ml->peers[peer_idx];
         uint64_t rtt_ms = now - pending_probes[i].sent_ms;
 
+        matched = true;
+        if (pkt->via_derp ? pending_probes[i].answered : pending_probes[i].got_direct) {
+            ESP_LOGD(TAG, "DISCO PONG duplicate from %s (via %s)",
+                     p->hostname, pkt->via_derp ? "DERP" : "direct");
+            break;
+        }
+        pending_probes[i].answered = true;
+        if (!pkt->via_derp) pending_probes[i].got_direct = true;
+
         ESP_LOGD(TAG, "DISCO PONG from %s: RTT=%llu ms (via %s)",
                  p->hostname, (unsigned long long)rtt_ms,
                  pkt->via_derp ? "DERP" : "direct");
 
         p->last_pong_recv_ms = now;
 
+        /* A peer on the same LAN answers on its LAN address and, through the
+         * router's NAT hairpin, on its public one. Taking whichever PONG came
+         * first flipped between the two every couple of minutes, each flip
+         * forcing a new WireGuard handshake. Keep a trusted path; leave it
+         * only for a LAN path, or once it stops answering (trust expires). */
+        bool keep_current = !pkt->via_derp && pkt->src_ip != 0 &&
+                            p->has_direct_path && now < p->trust_until_ms &&
+                            (p->best_ip != pkt->src_ip || p->best_port != pkt->src_port) &&
+                            !(is_lan_ip(pkt->src_ip) && !is_lan_ip(p->best_ip));
+        if (keep_current) {
+            ESP_LOGD(TAG, "DISCO PONG from %s on another path, keeping current one", p->hostname);
+        }
+
         /* If direct reply, update best path */
-        if (!pkt->via_derp && pkt->src_ip != 0) {
+        if (!keep_current && !pkt->via_derp && pkt->src_ip != 0) {
+            bool path_changed = !p->has_direct_path || p->best_ip != pkt->src_ip ||
+                                p->best_port != pkt->src_port;
             p->best_ip = pkt->src_ip;
             p->best_port = pkt->src_port;
             p->has_direct_path = true;
@@ -1008,10 +1040,13 @@ static void process_disco_pong(microlink_t *ml, const ml_rx_packet_t *pkt,
                                  (int)pkt->src_port, p->hostname);
                     }
                 } else {
-                    ESP_LOGI(TAG, "WG endpoint stored (no session): %d.%d.%d.%d:%d for %s",
-                             (int)((pkt->src_ip >> 24) & 0xFF), (int)((pkt->src_ip >> 16) & 0xFF),
-                             (int)((pkt->src_ip >> 8) & 0xFF), (int)(pkt->src_ip & 0xFF),
-                             (int)pkt->src_port, p->hostname);
+                    /* Heartbeat PONGs repeat this every few seconds: log changes only */
+                    if (path_changed) {
+                        ESP_LOGI(TAG, "WG endpoint stored (no session): %d.%d.%d.%d:%d for %s",
+                                 (int)((pkt->src_ip >> 24) & 0xFF), (int)((pkt->src_ip >> 16) & 0xFF),
+                                 (int)((pkt->src_ip >> 8) & 0xFF), (int)(pkt->src_ip & 0xFF),
+                                 (int)pkt->src_port, p->hostname);
+                    }
                     /* First direct path discovery — send a one-shot handshake
                      * via direct UDP. Do NOT use wireguardif_connect() which
                      * sets peer->active=true and causes infinite handshake
@@ -1043,8 +1078,6 @@ static void process_disco_pong(microlink_t *ml, const ml_rx_packet_t *pkt,
             }
         }
 
-        pending_probes[i].active = false;
-        matched = true;
         break;
     }
 
