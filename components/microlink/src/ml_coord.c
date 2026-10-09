@@ -897,8 +897,7 @@ static int do_register(microlink_t *ml, ml_noise_state_t *noise) {
         }
     }
 
-    /* Parse H2 frames from accumulated buffer */
-    bool got_end_stream = false;
+    /* Parse H2 frames from accumulated buffer (END_STREAM was found above) */
     int fpos = 0;
     while (fpos + 9 <= (int)h2_resp_len) {
         uint32_t f_len = (h2_resp[fpos] << 16) | (h2_resp[fpos + 1] << 8) | h2_resp[fpos + 2];
@@ -924,9 +923,7 @@ static int do_register(microlink_t *ml, ml_noise_state_t *noise) {
                     memcpy(resp_buf + resp_total, h2_resp + fpos, f_len);
                     resp_total += f_len;
                 }
-                if (f_flags & 0x01) got_end_stream = true;
             }
-            if (f_type == 0x01 && (f_flags & 0x01)) got_end_stream = true;
         }
 
         fpos += f_len;
@@ -998,6 +995,27 @@ static int do_register(microlink_t *ml, ml_noise_state_t *noise) {
     }
     parse_start[parse_len] = saved;
     free(resp_buf);
+
+    /* A rejected registration still comes back as a RegisterResponse. Say
+     * why here; otherwise the only symptom is "MapRequest failed" forever. */
+    cJSON *reg_err = cJSON_GetObjectItem(resp_json, "Error");
+    if (cJSON_IsString(reg_err) && reg_err->valuestring[0]) {
+        ESP_LOGE(TAG, "Registration rejected by the control server: %s", reg_err->valuestring);
+        cJSON_Delete(resp_json);
+        return -1;
+    }
+    cJSON *auth_url = cJSON_GetObjectItem(resp_json, "AuthURL");
+    if (cJSON_IsString(auth_url) && auth_url->valuestring[0]) {
+        ESP_LOGE(TAG, "Registration needs a login: the auth key is invalid, expired, or "
+                      "already used (non-reusable). Create a new key, or log in at %s",
+                 auth_url->valuestring);
+        cJSON_Delete(resp_json);
+        return -1;
+    }
+    if (cJSON_IsFalse(cJSON_GetObjectItem(resp_json, "MachineAuthorized"))) {
+        ESP_LOGW(TAG, "Device is waiting for approval: approve it at "
+                      "https://login.tailscale.com/admin/machines");
+    }
 
     /* Extract our VPN IP from Node.Addresses */
     cJSON *node = cJSON_GetObjectItem(resp_json, "Node");
@@ -1361,7 +1379,7 @@ static int add_endpoints_to_json(microlink_t *ml, cJSON *root) {
     }
 
     if (count > 0) {
-        ESP_LOGI(TAG, "MapRequest includes %d endpoint(s)", count);
+        ESP_LOGD(TAG, "MapRequest includes %d endpoint(s)", count);
     }
     return count;
 }
@@ -2045,6 +2063,15 @@ static int do_start_long_poll(microlink_t *ml, ml_noise_state_t *noise) {
  *
  * Uses H2 stream 7. Response body is discarded (only HTTP status matters).
  * Returns 0 on success, -1 on send failure. */
+
+/* Last endpoint update sent on this connection. The STUN re-probe runs every
+ * 23 s; resending an unchanged update each time costs a control request (and
+ * a new H2 stream) for nothing, so it is only repeated after a change or
+ * ML_EP_UPDATE_REFRESH_MS. Cleared on every new connection. */
+#define ML_EP_UPDATE_REFRESH_MS  (10 * 60 * 1000)
+static uint32_t s_ep_last_hash;
+static uint64_t s_ep_last_ms;
+
 static int do_send_endpoint_update(microlink_t *ml, ml_noise_state_t *noise) {
     if (ml->stun_public_ip == 0 && !ml->stun_has_ipv6) {
         ESP_LOGD(TAG, "No STUN endpoints yet, skipping endpoint update");
@@ -2100,6 +2127,18 @@ static int do_send_endpoint_update(microlink_t *ml, ml_noise_state_t *noise) {
     if (!json_str) return -1;
 
     size_t json_len = strlen(json_str);
+
+    uint32_t hash = 2166136261u;  /* FNV-1a */
+    for (size_t i = 0; i < json_len; i++) {
+        hash = (hash ^ (uint8_t)json_str[i]) * 16777619u;
+    }
+    uint64_t now = ml_get_time_ms();
+    if (hash == s_ep_last_hash && now - s_ep_last_ms < ML_EP_UPDATE_REFRESH_MS) {
+        ESP_LOGD(TAG, "Endpoints unchanged, skipping endpoint update");
+        free(json_str);
+        return 0;
+    }
+
     ESP_LOGI(TAG, "Endpoint update: %d bytes, %d endpoints (Stream=false, OmitPeers=true)",
              (int)json_len, ep_count);
 
@@ -2135,6 +2174,8 @@ static int do_send_endpoint_update(microlink_t *ml, ml_noise_state_t *noise) {
         return -1;
     }
     free(h2_buf);
+    s_ep_last_hash = hash;
+    s_ep_last_ms = now;
 
     ESP_LOGI(TAG, "Endpoint update sent on H2 stream %lu", (unsigned long)sid);
     /* Response body is discarded — server may send empty response or
@@ -2553,6 +2594,7 @@ void ml_coord_task(void *arg) {
                 break;
             }
             ml->h2_next_stream_id = 7;  /* Reset H2 stream counter for new connection */
+            s_ep_last_hash = 0;         /* the new connection gets a fresh endpoint update */
             state = COORD_NOISE_HANDSHAKE;
             break;
 

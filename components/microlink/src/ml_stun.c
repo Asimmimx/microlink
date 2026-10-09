@@ -301,7 +301,7 @@ esp_err_t ml_stun_send_probe(microlink_t *ml, const char *server, uint16_t port)
         return ESP_FAIL;
     }
 
-    ESP_LOGI(TAG, "STUN probe sent to %s:%u (%d bytes)", server, port, (int)req_len);
+    ESP_LOGD(TAG, "STUN probe sent to %s:%u (%d bytes)", server, port, (int)req_len);
     return ESP_OK;
 }
 
@@ -345,7 +345,7 @@ esp_err_t ml_stun_send_probe_to(microlink_t *ml, uint32_t server_ip, uint16_t po
 
     char ip_str[16];
     microlink_ip_to_str(server_ip, ip_str);
-    ESP_LOGI(TAG, "STUN probe sent to %s:%u (%d bytes)", ip_str, port, (int)req_len);
+    ESP_LOGD(TAG, "STUN probe sent to %s:%u (%d bytes)", ip_str, port, (int)req_len);
     return ESP_OK;
 }
 
@@ -417,7 +417,7 @@ bool ml_stun_parse_response(const uint8_t *data, size_t len,
 
                 char ip_str[16];
                 microlink_ip_to_str(*out_ip, ip_str);
-                ESP_LOGI(TAG, "STUN mapped: %s:%u", ip_str, *out_port);
+                ESP_LOGD(TAG, "STUN mapped: %s:%u", ip_str, *out_port);
                 txid_v4_valid = false;
                 return true;
             }
@@ -444,7 +444,7 @@ bool ml_stun_parse_response(const uint8_t *data, size_t len,
 
             char ip_str[16];
             microlink_ip_to_str(*out_ip, ip_str);
-            ESP_LOGI(TAG, "STUN mapped (legacy): %s:%u", ip_str, *out_port);
+            ESP_LOGD(TAG, "STUN mapped (legacy): %s:%u", ip_str, *out_port);
             txid_v4_valid = false;
             return true;
         }
