@@ -18,7 +18,7 @@ The code is split into four main portions
 
 - wireguard.c contains the bulk of the WireGuard&reg; protocol code and is not specific to any particular IP stack
 - wireguardif.c contains the lwIP integration code and makes a netif network interface and handles periodic tasks such as keepalive/expiration timers
-- wireguard-platform.h contains the definition of the four functions to be implemented per platform (a sample implementation is given in wireguard-platform.sample)
+- wireguard-platform.h contains the definition of the four functions to be implemented per platform (the ESP32 implementation is wireguard-platform-esp32.c)
 - crypto code (see below)
 
 ## Crypto Code
@@ -34,7 +34,7 @@ The crypto routines supplied are:
 - POLY1305 - taken from https://github.com/floodyberry/poly1305-donna
 - CHACHA20POLY1305 - implemented from scratch following description here https://tools.ietf.org/html/rfc7539
 - AEAD_XChaCha20_Poly1305 - implemented from scratch following description here https://tools.ietf.org/id/draft-arciszewski-xchacha-02.html
-- X25519 - taken from STROBE project at https://sourceforge.net/p/strobe, in addition there is a version optimised for Cortex-M0 processors which requires very little stack taken from https://munacl.cryptojedi.org/curve25519-cortexm0.shtml
+- X25519 - taken from STROBE project at https://sourceforge.net/p/strobe, (upstream also ships a Cortex-M0 assembly version from https://munacl.cryptojedi.org/curve25519-cortexm0.shtml; it is left out here because it cannot run on ESP32)
 
 # Integrating into your platform
 
